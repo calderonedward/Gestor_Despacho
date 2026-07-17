@@ -15,15 +15,23 @@ def generar_hash(password):
 
 def inicializar_bd():
     with conn.session as s:
+        # 1. Crear tabla si no existe
         s.execute(text('''CREATE TABLE IF NOT EXISTS inventario_expedientes (
             id SERIAL PRIMARY KEY, radicado TEXT, municipio TEXT, etapa TEXT, 
             estante TEXT, fila TEXT, puesto TEXT, ubicacion TEXT, status_activo INTEGER, 
-            observaciones TEXT, acusado TEXT, delitos TEXT, usuario_propietario TEXT)'''))
+            observaciones TEXT, acusado TEXT, delitos TEXT, usuario_propietario TEXT,
+            fecha_imputacion TEXT)'''))
         
+        # 2. Intentar agregar la columna por si ya existía sin ella
+        try:
+            s.execute(text('ALTER TABLE inventario_expedientes ADD COLUMN fecha_imputacion TEXT'))
+            s.commit()
+        except:
+            s.rollback() 
+            
+        # 3. Resto de tablas
         s.execute(text('''CREATE TABLE IF NOT EXISTS usuarios_despacho (
             usuario TEXT PRIMARY KEY, password TEXT, nombre_fiscalia TEXT)'''))
-        
-        # NUEVA TABLA: Mapas independientes por usuario
         s.execute(text('''CREATE TABLE IF NOT EXISTS mapas_personales (
             id SERIAL PRIMARY KEY, usuario TEXT, municipio TEXT, estante INTEGER, 
             fila_inicio INTEGER, fila_fin INTEGER)'''))
@@ -32,7 +40,6 @@ def inicializar_bd():
         if res_users == 0:
             pwd_hash = generar_hash("Admin123")
             s.execute(text("INSERT INTO usuarios_despacho (usuario, password, nombre_fiscalia) VALUES ('admin', :pwd, 'Fiscalía 01 Seccional')"), {"pwd": pwd_hash})
-        
         s.commit()
 
 inicializar_bd()
@@ -233,31 +240,55 @@ else:
 
     elif eleccion == "📝 Ingresar Nuevo Expediente":
         with st.form("f1"):
-            r = st.text_input("Radicado*"); a = st.text_input("Acusado*"); d = st.text_input("Delito*")
+            r = st.text_input("Radicado*")
+            a = st.text_input("Acusado*")
+            d = st.text_input("Delito*")
+            # --- AGREGAMOS EL CALENDARIO DE FECHA ---
+            f_imp = st.date_input("Fecha de Imputación")
+            
             # Extraemos los municipios disponibles desde el mapa personal del usuario
-            m = st.selectbox("Municipio", obtener_mapa(usr)['municipio'].tolist()); e = st.selectbox("Etapa", ["Indagación", "Imputación", "Acusación", "Sentencia", "Preclusión"])
+            m = st.selectbox("Municipio", obtener_mapa(usr)['municipio'].tolist())
+            e = st.selectbox("Etapa", ["Indagación", "Imputación", "Acusación", "Sentencia", "Preclusión"])
+            
             if st.form_submit_button("Guardar"):
                 est, fil, pto, ubi = asignar_ubicacion_fisica(m, e, usr)
                 with conn.session as s:
-                    s.execute(text("INSERT INTO inventario_expedientes (radicado, acusado, delitos, municipio, etapa, estante, fila, puesto, ubicacion, status_activo, usuario_propietario) VALUES (:r, :a, :d, :m, :e, :est, :fil, :pto, :ubi, 1, :usr)"), 
-                              {"r":r, "a":a, "d":d, "m":m, "e":e, "est":est, "fil":fil, "pto":pto, "ubi":ubi, "usr":usr})
+                    # Convertimos la fecha a texto para guardarla
+                    fecha_str = str(f_imp)
+                    s.execute(text("""INSERT INTO inventario_expedientes 
+                                      (radicado, acusado, delitos, municipio, etapa, estante, fila, puesto, ubicacion, status_activo, usuario_propietario, fecha_imputacion) 
+                                      VALUES (:r, :a, :d, :m, :e, :est, :fil, :pto, :ubi, 1, :usr, :f_imp)"""), 
+                              {"r":r, "a":a, "d":d, "m":m, "e":e, "est":est, "fil":fil, "pto":pto, "ubi":ubi, "usr":usr, "f_imp":fecha_str})
                     s.commit()
                 st.success(f"Guardado en {est}, {fil}, {pto}, Ubi {ubi}")
 
     elif eleccion == "🔄 Actualizar / Cerrar Caso":
+        st.header("🔄 Actualizar / Cerrar Caso")
         with st.form("f2"):
-            r = st.text_input("Radicado:"); n = st.selectbox("Nueva Etapa", ["Sentencia", "Preclusión", "Archivo"]); obs = st.text_area("Observaciones*")
+            r = st.text_input("Radicado del caso:")
+            n = st.selectbox("Nueva Etapa", ["Indagación", "Imputación", "Acusación", "Sentencia", "Preclusión", "Archivo"])
+            f_imp = st.date_input("Fecha de Imputación (si aplica):")
+            obs = st.text_area("Observaciones:")
+            
             if st.form_submit_button("Actualizar"):
                 with conn.session as s:
+                    # Convertimos la fecha a texto para guardarla en la BD
+                    fecha_str = str(f_imp)
+                    
                     if n in ["Sentencia", "Preclusión", "Archivo"]:
                         e, f, p, u = asignar_ubicacion_fisica("SENTENCIAS", n, usr)
-                        s.execute(text("UPDATE inventario_expedientes SET etapa=:n, status_activo=0, estante=:e, fila=:f, puesto=:p, ubicacion=:u, observaciones=:obs WHERE radicado=:r AND usuario_propietario=:usr"),
-                                  {"n":n, "e":e, "f":f, "p":p, "u":u, "obs":obs, "r":r, "usr":usr})
+                        s.execute(text("""UPDATE inventario_expedientes 
+                                          SET etapa=:n, status_activo=0, estante=:e, fila=:f, puesto=:p, 
+                                          ubicacion=:u, observaciones=:obs, fecha_imputacion=:f_imp 
+                                          WHERE radicado=:r AND usuario_propietario=:usr"""),
+                                  {"n":n, "e":e, "f":f, "p":p, "u":u, "obs":obs, "f_imp":fecha_str, "r":r, "usr":usr})
                     else: 
-                        s.execute(text("UPDATE inventario_expedientes SET etapa=:n, observaciones=:obs WHERE radicado=:r AND usuario_propietario=:usr"),
-                                  {"n":n, "obs":obs, "r":r, "usr":usr})
+                        s.execute(text("""UPDATE inventario_expedientes 
+                                          SET etapa=:n, observaciones=:obs, fecha_imputacion=:f_imp 
+                                          WHERE radicado=:r AND usuario_propietario=:usr"""),
+                                  {"n":n, "obs":obs, "f_imp":fecha_str, "r":r, "usr":usr})
                     s.commit()
-                st.success("Actualizado")
+                st.success("Caso actualizado exitosamente.")
 
     elif eleccion == "📊 Ver Inventario":
         df = conn.query(f"SELECT * FROM inventario_expedientes WHERE usuario_propietario = '{usr}'", ttl=0)
