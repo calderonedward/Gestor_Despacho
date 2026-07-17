@@ -113,7 +113,7 @@ else:
         st.rerun()
         
     st.sidebar.divider()
-    menu = ["⚙️ Configuración", "🔎 Consulta Rápida", "📝 Ingresar Nuevo Expediente", "🔄 Actualizar / Cerrar Caso", "📊 Ver Inventario", "📤 Carga Masiva (Excel)"]
+    menu = ["⚙️ Configuración", "🔎 Consulta Rápida", "📝 Ingresar Nuevo Expediente", "🔄 Actualizar / Cerrar Caso", "📊 Ver Inventario", "📤 Carga Masiva (Excel)", "📥 Descargar Reporte (Excel)"]
     eleccion = st.sidebar.radio("Navegación:", menu)
 
     if eleccion == "⚙️ Configuración":
@@ -282,3 +282,21 @@ else:
             with conn.engine.connect() as eng_conn:
                 df.to_sql('inventario_expedientes', eng_conn, if_exists='append', index=False)
             st.success("Cargado exclusivamente para tu despacho.")
+    elif eleccion == "📥 Descargar Reporte (Excel)":
+        st.header("📥 Reporte de Inventario")
+        df_reporte = conn.query(f"SELECT * FROM inventario_expedientes WHERE usuario_propietario = '{usr}'", ttl=0)
+        
+        if not df_reporte.empty:
+            st.dataframe(df_reporte)
+            from io import BytesIO
+            output = BytesIO()
+            df_reporte.to_excel(output, index=False)
+            
+            st.download_button(
+                label="📥 Descargar archivo Excel",
+                data=output.getvalue(),
+                file_name=f"Reporte_Despacho_{usr}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+        else:
+            st.warning("No hay expedientes para generar el reporte.")
