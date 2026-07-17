@@ -119,6 +119,7 @@ else:
     if eleccion == "⚙️ Configuración":
         st.header("⚙️ Configuración del Despacho")
         
+        # --- Nombre de la fiscalía ---
         nuevo_nombre = st.text_input("Nombre de la Fiscalía asignada:", value=st.session_state['fiscalia_actual'])
         if st.button("Actualizar Perfil"):
             with conn.session as s:
@@ -127,6 +128,25 @@ else:
             st.session_state['fiscalia_actual'] = nuevo_nombre
             st.success("Perfil actualizado.")
             st.rerun()
+
+        st.write("---")
+        # --- CAMBIO DE CONTRASEÑA PERSONAL ---
+        st.write("### 🔑 Cambiar mi contraseña")
+        with st.form("cambiar_pwd"):
+            pwd_ant = st.text_input("Contraseña actual", type="password")
+            pwd_nueva = st.text_input("Nueva contraseña", type="password")
+            if st.form_submit_button("Actualizar mi contraseña"):
+                hash_ant = generar_hash(pwd_ant)
+                # Verificamos la contraseña actual
+                df_check = conn.query(f"SELECT * FROM usuarios_despacho WHERE usuario='{usr}' AND password='{hash_ant}'", ttl=0)
+                if not df_check.empty:
+                    with conn.session as s:
+                        s.execute(text("UPDATE usuarios_despacho SET password = :p WHERE usuario = :u"), 
+                                  {"p": generar_hash(pwd_nueva), "u": usr})
+                        s.commit()
+                    st.success("Contraseña actualizada correctamente.")
+                else:
+                    st.error("La contraseña actual es incorrecta.")
 
         st.write("---")
         st.write("### 🗺️ Mi Mapa Físico (Estantes y Filas)")
@@ -146,10 +166,12 @@ else:
                 df_mapa.to_sql('mapas_personales', eng_conn, if_exists='append', index=False)
             st.success("Mapa de estantes actualizado para tu despacho.")
             
-        # Opciones de creación de usuarios (Solo visibles para 'admin')
+        # Opciones de creación y gestión de usuarios (Solo visibles para 'admin')
         if usr == 'admin':
             st.write("---")
             st.write("### 👑 Panel de Administrador")
+            
+            # --- CREAR COLEGAS ---
             st.write("#### 👥 Crear Cuenta para un Colega")
             with st.form("nuevo_usuario"):
                 n_usr = st.text_input("Nuevo Usuario (ej. fiscal_02)")
@@ -161,16 +183,53 @@ else:
                             s.execute(text("INSERT INTO usuarios_despacho (usuario, password, nombre_fiscalia) VALUES (:u, :p, :f)"), 
                                       {"u": n_usr, "p": generar_hash(n_pwd), "f": n_fisc})
                             s.commit()
-                            st.success(f"Cuenta creada. El usuario '{n_usr}' ya puede iniciar sesión.")
+                            st.success(f"Cuenta '{n_usr}' creada.")
                         except:
                             st.error("Error: Ese usuario ya existe.")
+
+            # --- RESTABLECER CONTRASEÑAS ---
+            st.write("#### 🔄 Restablecer contraseña de un colega")
+            with st.form("reset_pwd"):
+                lista_usuarios = conn.query("SELECT usuario FROM usuarios_despacho", ttl=0)['usuario'].tolist()
+                r_usr = st.selectbox("Seleccionar usuario", lista_usuarios)
+                r_pwd = st.text_input("Nueva contraseña para este colega", type="password")
+                
+                if st.form_submit_button("Restablecer Clave"):
+                    with conn.session as s:
+                        s.execute(text("UPDATE usuarios_despacho SET password = :p WHERE usuario = :u"), 
+                                  {"p": generar_hash(r_pwd), "u": r_usr})
+                        s.commit()
+                    st.success(f"La contraseña de {r_usr} ha sido cambiada.")
 
     elif eleccion == "🔎 Consulta Rápida":
         st.header("🔎 Consulta Rápida")
         termino = st.text_input("Acusado o Radicado:")
         if st.button("Buscar") and len(termino) >= 3:
             query = f"SELECT * FROM inventario_expedientes WHERE usuario_propietario = '{usr}' AND (radicado ILIKE '%{termino}%' OR acusado ILIKE '%{termino}%')"
-            st.dataframe(conn.query(query, ttl=0))
+            df_resultado = conn.query(query, ttl=0)
+            st.dataframe(df_resultado)
+            
+            # --- NUEVA SECCIÓN: EDICIÓN DE OBSERVACIONES ---
+            if not df_resultado.empty:
+                st.write("---")
+                st.write("### 📝 Editar Observaciones")
+                with st.form("form_editar_obs"):
+                    # Tomamos el radicado del primer caso que aparezca en la búsqueda
+                    radicado_actual = df_resultado.iloc[0]['radicado']
+                    
+                    # Tomamos la observación actual para que aparezca en el cuadro de texto
+                    obs_actual = df_resultado.iloc[0]['observaciones']
+                    if pd.isna(obs_actual) or obs_actual == "None" or obs_actual == None:
+                        obs_actual = ""
+                        
+                    nueva_obs = st.text_area(f"Añadir o modificar observaciones para el radicado {radicado_actual}:", value=obs_actual)
+                    
+                    if st.form_submit_button("Guardar Observación"):
+                        with conn.session as s:
+                            s.execute(text("UPDATE inventario_expedientes SET observaciones = :obs WHERE radicado = :rad AND usuario_propietario = :usr"), 
+                                      {"obs": nueva_obs, "rad": radicado_actual, "usr": usr})
+                            s.commit()
+                        st.success("¡Observaciones actualizadas correctamente!")
 
     elif eleccion == "📝 Ingresar Nuevo Expediente":
         with st.form("f1"):
