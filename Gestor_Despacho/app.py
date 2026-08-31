@@ -8,6 +8,9 @@ st.set_page_config(page_title="Gestor de Despacho", page_icon="⚖️", layout="
 # ==========================================
 # 0. SEGURIDAD Y CONEXIÓN
 # ==========================================
+import hashlib
+from sqlalchemy import text
+
 conn = st.connection("supabase", type="sql")
 
 def generar_hash(password):
@@ -36,16 +39,17 @@ def inicializar_bd():
             id SERIAL PRIMARY KEY, usuario TEXT, municipio TEXT, estante INTEGER, 
             fila_inicio INTEGER, fila_fin INTEGER)'''))
         
-        res_users = s.execute(text("SELECT COUNT(*) FROM usuarios_despacho")).scalar()
-        if res_users == 0:
-            pwd_hash = generar_hash("Admin123")
-            pwd_hash = hashlib.sha256("12345".encode()).hexdigest()
-s.execute(text("""
-    INSERT INTO usuarios_despacho (usuario, password, nombre_fiscalia) 
-    VALUES ('admin', :pwd, 'Fiscalía 01 Seccional')
-    ON CONFLICT (usuario) DO UPDATE SET password = :pwd
-"""), {"pwd": pwd_hash})
-s.commit()
+        # 4. Configurar o actualizar el usuario admin con la contraseña '12345'
+        pwd_hash = hashlib.sha256("12345".encode()).hexdigest()
+        s.execute(text("""
+            INSERT INTO usuarios_despacho (usuario, password, nombre_fiscalia) 
+            VALUES ('admin', :pwd, 'Fiscalía 01 Seccional')
+            ON CONFLICT (usuario) DO UPDATE SET password = :pwd
+        """), {"pwd": pwd_hash})
+        s.commit()
+
+inicializar_bd()
+
 def obtener_mapa(usr):
     # Consulta el mapa exclusivo del usuario actual
     df = conn.query(f"SELECT municipio, estante, fila_inicio, fila_fin FROM mapas_personales WHERE usuario = '{usr}'", ttl=0)
