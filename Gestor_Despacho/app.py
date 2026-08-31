@@ -39,11 +39,13 @@ def inicializar_bd():
         res_users = s.execute(text("SELECT COUNT(*) FROM usuarios_despacho")).scalar()
         if res_users == 0:
             pwd_hash = generar_hash("Admin123")
-            s.execute(text("INSERT INTO usuarios_despacho (usuario, password, nombre_fiscalia) VALUES ('admin', :pwd, 'Fiscalía 01 Seccional')"), {"pwd": pwd_hash})
-        s.commit()
-
-inicializar_bd()
-
+            pwd_hash = hashlib.sha256("12345".encode()).hexdigest()
+s.execute(text("""
+    INSERT INTO usuarios_despacho (usuario, password, nombre_fiscalia) 
+    VALUES ('admin', :pwd, 'Fiscalía 01 Seccional')
+    ON CONFLICT (usuario) DO UPDATE SET password = :pwd
+"""), {"pwd": pwd_hash})
+s.commit()
 def obtener_mapa(usr):
     # Consulta el mapa exclusivo del usuario actual
     df = conn.query(f"SELECT municipio, estante, fila_inicio, fila_fin FROM mapas_personales WHERE usuario = '{usr}'", ttl=0)
