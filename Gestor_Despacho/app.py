@@ -355,25 +355,25 @@ else:
                         slots = [(f"Fila {f}", f"Puesto {p}", str(u)) for f in filas for p in range(1, max_puestos + 1) for u in range(1, max_ubic + 1)]
                             # Generar todos los slots posibles para este estante
                             
-                            if est_str not in ocupados_por_estante:
-                                ocupados_por_estante[est_str] = set()
+                    if est_str not in ocupados_por_estante:
+                        ocupados_por_estante[est_str] = set()
                                 
-                            # Buscar el primer slot libre
-                            slot_encontrado = None
-                            for slot in slots:
-                                if slot not in ocupados_por_estante[est_str]:
-                                    slot_encontrado = slot
-                                    break
+                        # Buscar el primer slot libre
+                        slot_encontrado = None
+                        for slot in slots:
+                    if slot not in ocupados_por_estante[est_str]:
+                        slot_encontrado = slot
+                        break
                             
-                            if slot_encontrado:
-                                estante = est_str
-                                fila = slot_encontrado[0]
-                                puesto = slot_encontrado[1]
-                                ubicacion = slot_encontrado[2]
-                                # Registrar el slot como ocupado localmente para el siguiente expediente del Excel
-                                ocupados_por_estante[est_str].add(slot_encontrado)
-                            else:
-                                estante, fila, puesto, ubicacion = est_str, "LLENO", "LLENO", "LLENO"
+                    if slot_encontrado:
+                        estante = est_str
+                        fila = slot_encontrado[0]
+                        puesto = slot_encontrado[1]
+                        ubicacion = slot_encontrado[2]
+                        # Registrar el slot como ocupado localmente para el siguiente expediente del Excel
+                        ocupados_por_estante[est_str].add(slot_encontrado)
+                    else:
+                        estante, fila, puesto, ubicacion = est_str, "LLENO", "LLENO", "LLENO"
 
                         df.loc[index, 'estante'] = str(estante)
                         df.loc[index, 'fila'] = str(fila)
