@@ -340,7 +340,7 @@ else:
                         bloque = "SENTENCIAS" if eta in ["Sentencia", "Preclusión", "Archivo"] else mun
                         regla = mapa_df[mapa_df['municipio'] == bloque]
                         
-                        if regla.empty:
+                    if regla.empty:
                         estante, fila, puesto, ubicacion = "Pendiente", "Pendiente", "Pendiente", "Pendiente"
                     else:
                         est = int(regla['estante'].iloc[0])
