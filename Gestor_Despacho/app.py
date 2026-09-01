@@ -393,9 +393,9 @@ else:
         ]
         df_final = df[[col for col in columnas_permitidas if col in df.columns]]
 
-                with conn.engine.connect() as eng_conn:
-                    df_final.to_sql('inventario_expedientes', eng_conn, if_exists='append', index=False)
-                st.success("¡Carga masiva realizada de forma instantánea y con ubicaciones precisas!")
+        with conn.engine.connect() as eng_conn:
+            df_final.to_sql('inventario_expedientes', eng_conn, if_exists='append', index=False)
+        st.success("¡Carga masiva realizada de forma instantánea y con ubicaciones precisas!")
         df_reporte = conn.query(f"SELECT * FROM inventario_expedientes WHERE usuario_propietario = '{usr}'", ttl=0)
         
         if not df_reporte.empty:
