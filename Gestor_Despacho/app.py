@@ -8,9 +8,6 @@ st.set_page_config(page_title="Gestor de Despacho", page_icon="⚖️", layout="
 # ==========================================
 # 0. SEGURIDAD Y CONEXIÓN
 # ==========================================
-import hashlib
-from sqlalchemy import text
-
 conn = st.connection("supabase", type="sql")
 
 def generar_hash(password):
@@ -37,7 +34,7 @@ def inicializar_bd():
             usuario TEXT PRIMARY KEY, password TEXT, nombre_fiscalia TEXT)'''))
         s.execute(text('''CREATE TABLE IF NOT EXISTS mapas_personales (
             id SERIAL PRIMARY KEY, usuario TEXT, municipio TEXT, estante INTEGER, 
-            fila_inicio INTEGER, fila_fin INTEGER)'''))
+            fila_inicio INTEGER, fila_fin INTEGER, puestos_max INTEGER, ubic_max INTEGER)'''))
         
         # 4. Configurar o actualizar el usuario admin con la contraseña '12345'
         pwd_hash = hashlib.sha256("12345".encode()).hexdigest()
@@ -130,7 +127,15 @@ else:
         st.rerun()
         
     st.sidebar.divider()
-    menu = ["⚙️ Configuración", "🔎 Consulta Rápida", "📝 Ingresar Nuevo Expediente", "🔄 Actualizar / Cerrar Caso", "📊 Ver Inventario", "📤 Carga Masiva (Excel)", "📥 Descargar Reporte (Excel)"]
+    menu = [
+        "⚙️ Configuración", 
+        "🔎 Consulta Rápida", 
+        "📝 Ingresar Nuevo Expediente", 
+        "🔄 Actualizar / Cerrar Caso", 
+        "📊 Ver Inventario", 
+        "📥 Carga Masiva (Excel)", 
+        "🗺️ Configurar Mi Mapa Físico"
+    ]
     eleccion = st.sidebar.radio("Navegación:", menu)
 
     if eleccion == "⚙️ Configuración":
@@ -154,7 +159,6 @@ else:
             pwd_nueva = st.text_input("Nueva contraseña", type="password")
             if st.form_submit_button("Actualizar mi contraseña"):
                 hash_ant = generar_hash(pwd_ant)
-                # Verificamos la contraseña actual
                 df_check = conn.query(f"SELECT * FROM usuarios_despacho WHERE usuario='{usr}' AND password='{hash_ant}'", ttl=0)
                 if not df_check.empty:
                     with conn.session as s:
@@ -165,24 +169,6 @@ else:
                 else:
                     st.error("La contraseña actual es incorrecta.")
 
-        st.write("---")
-        st.write("### 🗺️ Mi Mapa Físico (Estantes y Filas)")
-        st.info("Este mapa es único para tu despacho. Modificarlo no afectará a los demás fiscales.")
-        
-        # Cada usuario carga y edita SU propio mapa
-        df_mapa = st.data_editor(obtener_mapa(usr), num_rows="dynamic")
-        
-        if st.button("Guardar Mapa"):
-            with conn.session as s:
-                # Borramos el mapa antiguo de este usuario y guardamos el nuevo
-                s.execute(text("DELETE FROM mapas_personales WHERE usuario = :u"), {"u": usr})
-                s.commit()
-            
-            df_mapa['usuario'] = usr
-            with conn.engine.connect() as eng_conn:
-                df_mapa.to_sql('mapas_personales', eng_conn, if_exists='append', index=False)
-            st.success("Mapa de estantes actualizado para tu despacho.")
-            
         # Opciones de creación y gestión de usuarios (Solo visibles para 'admin')
         if usr == 'admin':
             st.write("---")
@@ -231,12 +217,9 @@ else:
                 st.write("---")
                 st.write("### 📝 Editar Observaciones")
                 with st.form("form_editar_obs"):
-                    # Tomamos el radicado del primer caso que aparezca en la búsqueda
                     radicado_actual = df_resultado.iloc[0]['radicado']
-                    
-                    # Tomamos la observación actual para que aparezca en el cuadro de texto
                     obs_actual = df_resultado.iloc[0]['observaciones']
-                    if pd.isna(obs_actual) or obs_actual == "None" or obs_actual == None:
+                    if pd.isna(obs_actual) or obs_actual == "None" or obs_actual is None:
                         obs_actual = ""
                         
                     nueva_obs = st.text_area(f"Añadir o modificar observaciones para el radicado {radicado_actual}:", value=obs_actual)
@@ -253,22 +236,19 @@ else:
             r = st.text_input("Radicado*")
             a = st.text_input("Acusado*")
             d = st.text_input("Delito*")
-            # --- AGREGAMOS EL CALENDARIO DE FECHA ---
             f_imp = st.date_input("Fecha de Imputación")
             
-            # Extraemos los municipios disponibles desde el mapa personal del usuario
             m = st.selectbox("Municipio", obtener_mapa(usr)['municipio'].tolist())
             e = st.selectbox("Etapa", ["Indagación", "Imputación", "Acusación", "Sentencia", "Preclusión"])
             
             if st.form_submit_button("Guardar"):
                 est, fil, pto, ubi = asignar_ubicacion_fisica(m, e, usr)
                 with conn.session as s:
-                    # Convertimos la fecha a texto para guardarla
                     fecha_str = str(f_imp)
                     s.execute(text("""INSERT INTO inventario_expedientes 
-                                      (radicado, acusado, delitos, municipio, etapa, estante, fila, puesto, ubicacion, status_activo, usuario_propietario, fecha_imputacion) 
-                                      VALUES (:r, :a, :d, :m, :e, :est, :fil, :pto, :ubi, 1, :usr, :f_imp)"""), 
-                              {"r":r, "a":a, "d":d, "m":m, "e":e, "est":est, "fil":fil, "pto":pto, "ubi":ubi, "usr":usr, "f_imp":fecha_str})
+                                        (radicado, acusado, delitos, municipio, etapa, estante, fila, puesto, ubicacion, status_activo, usuario_propietario, fecha_imputacion) 
+                                        VALUES (:r, :a, :d, :m, :e, :est, :fil, :pto, :ubi, 1, :usr, :f_imp)"""), 
+                                  {"r":r, "a":a, "d":d, "m":m, "e":e, "est":est, "fil":fil, "pto":pto, "ubi":ubi, "usr":usr, "f_imp":fecha_str})
                     s.commit()
                 st.success(f"Guardado en {est}, {fil}, {pto}, Ubi {ubi}")
 
@@ -282,7 +262,6 @@ else:
             
             if st.form_submit_button("Actualizar"):
                 with conn.session as s:
-                    # Convertimos la fecha a texto para guardarla en la BD
                     fecha_str = str(f_imp)
                     
                     if n in ["Sentencia", "Preclusión", "Archivo"]:
@@ -315,9 +294,9 @@ else:
                 s.commit()
             st.success("Reorganizado"); st.rerun()
 
-elif eleccion == " 📥 Carga Masiva (Excel)":
-    archivo = st.file_uploader("Sube Excel", type=["xlsx"])
-    if archivo and st.button("Cargar"):
+    elif eleccion == " 📥 Carga Masiva (Excel)":
+        archivo = st.file_uploader("Sube Excel", type=["xlsx"])
+        if archivo and st.button("Cargar"):
             df = pd.read_excel(archivo, dtype=str).fillna("").replace(r'\.0$', '', regex=True)
             df['usuario_propietario'] = usr
 
@@ -326,76 +305,77 @@ elif eleccion == " 📥 Carga Masiva (Excel)":
             df_ocupados_global = conn.query(f"SELECT estante, fila, puesto, ubicacion FROM inventario_expedientes WHERE usuario_propietario = '{usr}'", ttl=0)
             
             # Crear un registro local de ocupados en memoria para no saturar la base de datos
-        ocupados_por_estante = {}
-        for est in mapa_df['estante'].unique():
-            est_str = f"Estante {int(est)}"
-            subset = df_ocupados_global[df_ocupados_global['estante'] == est_str]
-            ocupados_por_estante[est_str] = set((str(r['fila']), str(r['puesto']), str(r['ubicacion'])) for _, r in subset.iterrows())
+            ocupados_por_estante = {}
+            for est in mapa_df['estante'].unique():
+                est_str = f"Estante {int(est)}"
+                subset = df_ocupados_global[df_ocupados_global['estante'] == est_str]
+                ocupados_por_estante[est_str] = set((str(r['fila']), str(r['puesto']), str(r['ubicacion'])) for _, r in subset.iterrows())
 
-        # 2. Procesar la asignación de manera local y veloz
-        for index, row in df.iterrows():
-            mun = str(row.get('municipio', '')).upper()
-            eta = str(row.get('etapa', ''))
-            
-            bloque = "SENTENCIAS" if eta in ["Sentencia", "Preclusión", "Archivo"] else mun
-            regla = mapa_df[mapa_df['municipio'] == bloque]
-            
-            if regla.empty:
-                estante, fila, puesto, ubicacion = "Pendiente", "Pendiente", "Pendiente", "Pendiente"
-                df.loc[index, 'estante'] = str(estante)
-                df.loc[index, 'fila'] = str(fila)
-                df.loc[index, 'puesto'] = str(puesto)
-                df.loc[index, 'ubicacion'] = str(ubicacion)
-                df.loc[index, 'status_activo'] = 1
-            else:
-                est = int(regla['estante'].iloc[0])
-                est_str = f"Estante {est}"
-                filas = range(int(regla['fila_inicio'].iloc[0]), int(regla['fila_fin'].iloc[0]) + 1)
+            # 2. Procesar la asignación de manera local y veloz
+            for index, row in df.iterrows():
+                mun = str(row.get('municipio', '')).upper()
+                eta = str(row.get('etapa', ''))
                 
-                # Leer límites personalizados en la carga masiva
-                max_puestos = int(regla['puestos_max'].iloc[0]) if 'puestos_max' in regla.columns and pd.notna(regla['puestos_max'].iloc[0]) else 3
-                max_ubic = int(regla['ubic_max'].iloc[0]) if 'ubic_max' in regla.columns and pd.notna(regla['ubic_max'].iloc[0]) else 20
+                bloque = "SENTENCIAS" if eta in ["Sentencia", "Preclusión", "Archivo"] else mun
+                regla = mapa_df[mapa_df['municipio'] == bloque]
                 
-                # Generar los slots usando el límite real configurado en tu mapa
-                slots = [(f"Fila {f}", f"Puesto {p}", str(u)) for f in filas for p in range(1, max_puestos + 1) for u in range(1, max_ubic + 1)]
-
-                if est_str not in ocupados_por_estante:
-                    ocupados_por_estante[est_str] = set()
-                    
-                # Buscar el primer slot libre
-                slot_encontrado = None
-                for slot in slots:
-                    if slot not in ocupados_por_estante[est_str]:
-                        slot_encontrado = slot
-                        break
-                        
-                if slot_encontrado:
-                    estante = est_str
-                    fila = slot_encontrado[0]
-                    puesto = slot_encontrado[1]
-                    ubicacion = slot_encontrado[2]
-                    # Registrar el slot como ocupado localmente para el siguiente expediente del Excel
-                    ocupados_por_estante[est_str].add(slot_encontrado)
+                if regla.empty:
+                    estante, fila, puesto, ubicacion = "Pendiente", "Pendiente", "Pendiente", "Pendiente"
+                    df.loc[index, 'estante'] = str(estante)
+                    df.loc[index, 'fila'] = str(fila)
+                    df.loc[index, 'puesto'] = str(puesto)
+                    df.loc[index, 'ubicacion'] = str(ubicacion)
+                    df.loc[index, 'status_activo'] = 1
                 else:
-                    estante, fila, puesto, ubicacion = est_str, "LLENO", "LLENO", "LLENO"
+                    est = int(regla['estante'].iloc[0])
+                    est_str = f"Estante {est}"
+                    filas = range(int(regla['fila_inicio'].iloc[0]), int(regla['fila_fin'].iloc[0]) + 1)
+                    
+                    # Leer límites personalizados en la carga masiva
+                    max_puestos = int(regla['puestos_max'].iloc[0]) if 'puestos_max' in regla.columns and pd.notna(regla['puestos_max'].iloc[0]) else 3
+                    max_ubic = int(regla['ubic_max'].iloc[0]) if 'ubic_max' in regla.columns and pd.notna(regla['ubic_max'].iloc[0]) else 20
+                    
+                    # Generar los slots usando el límite real configurado en tu mapa
+                    slots = [(f"Fila {f}", f"Puesto {p}", str(u)) for f in filas for p in range(1, max_puestos + 1) for u in range(1, max_ubic + 1)]
 
-                df.loc[index, 'estante'] = str(estante)
-                df.loc[index, 'fila'] = str(fila)
-                df.loc[index, 'puesto'] = str(puesto)
-                df.loc[index, 'ubicacion'] = str(ubicacion)
-                df.loc[index, 'status_activo'] = 1
-                
-        # 3. Guardar todo el lote de golpe en Supabase de manera limpia
-        columnas_permitidas = [
-            'radicado', 'municipio', 'etapa', 'estante', 'fila', 
-            'puesto', 'ubicacion', 'status_activo', 'observaciones', 
-            'acusado', 'delitos', 'usuario_propietario', 'fecha_imputacion'
-        ]
-        df_final = df[[col for col in columnas_permitidas if col in df.columns]]
+                    if est_str not in ocupados_por_estante:
+                        ocupados_por_estante[est_str] = set()
+                        
+                    # Buscar el primer slot libre
+                    slot_encontrado = None
+                    for slot in slots:
+                        if slot not in ocupados_por_estante[est_str]:
+                            slot_encontrado = slot
+                            break
+                            
+                    if slot_encontrado:
+                        estante = est_str
+                        fila = slot_encontrado[0]
+                        puesto = slot_encontrado[1]
+                        ubicacion = slot_encontrado[2]
+                        # Registrar el slot como ocupado localmente para el siguiente expediente del Excel
+                        ocupados_por_estante[est_str].add(slot_encontrado)
+                    else:
+                        estante, fila, puesto, ubicacion = est_str, "LLENO", "LLENO", "LLENO"
 
-        with conn.engine.connect() as eng_conn:
-            df_final.to_sql('inventario_expedientes', eng_conn, if_exists='append', index=False)
-        st.success("¡Carga masiva realizada de forma instantánea y con ubicaciones precisas!")
+                    df.loc[index, 'estante'] = str(estante)
+                    df.loc[index, 'fila'] = str(fila)
+                    df.loc[index, 'puesto'] = str(puesto)
+                    df.loc[index, 'ubicacion'] = str(ubicacion)
+                    df.loc[index, 'status_activo'] = 1
+            
+            # 3. Guardar todo el lote de golpe en Supabase de manera limpia
+            columnas_permitidas = [
+                'radicado', 'municipio', 'etapa', 'estante', 'fila', 
+                'puesto', 'ubicacion', 'status_activo', 'observaciones', 
+                'acusado', 'delitos', 'usuario_propietario', 'fecha_imputacion'
+            ]
+            df_final = df[[col for col in columnas_permitidas if col in df.columns]]
+
+            with conn.engine.connect() as eng_conn:
+                df_final.to_sql('inventario_expedientes', eng_conn, if_exists='append', index=False)
+            st.success("¡Carga masiva realizada de forma instantánea y con ubicaciones precisas!")
+            
         df_reporte = conn.query(f"SELECT * FROM inventario_expedientes WHERE usuario_propietario = '{usr}'", ttl=0)
         
         if not df_reporte.empty:
