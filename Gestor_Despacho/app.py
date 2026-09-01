@@ -317,20 +317,62 @@ else:
                     df = pd.read_excel(archivo, dtype=str).fillna("").replace(r'\.0$', '', regex=True)
                     df['usuario_propietario'] = usr
                     
-                    # Iterar fila por fila usando tu función oficial de asignación física (respeta puestos y cupos)
+                    # 1. Cargar mapas y registros ocupados UNA sola vez en memoria antes del ciclo
+                    mapa_df = obtener_mapa(usr)
+                    df_ocupados_global = conn.query(f"SELECT estante, fila, puesto, ubicacion FROM inventario_expedientes WHERE usuario_propietario = '{usr}'", ttl=0)
+                    
+                    # Crear un registro local de ocupados en memoria para no saturar la base de datos
+                    ocupados_por_estante = {}
+                    for est in mapa_df['estante'].unique():
+                        est_str = f"Estante {int(est)}"
+                        subset = df_ocupados_global[df_ocupados_global['estante'] == est_str]
+                        ocupados_por_estante[est_str] = set((str(r['fila']), str(r['puesto']), str(r['ubicacion'])) for _, r in subset.iterrows())
+
+                    # 2. Procesar la asignación de manera local y veloz
                     for index, row in df.iterrows():
                         mun = str(row.get('municipio', '')).upper()
                         eta = str(row.get('etapa', ''))
                         
-                        # Llama a la lógica exacta de tus estantes, filas y puestos de 20 cupos
-                        estante, fila, puesto, ubicacion = asignar_ubicacion_fisica(mun, eta, usr)
+                        bloque = "SENTENCIAS" if eta in ["Sentencia", "Preclusión", "Archivo"] else mun
+                        regla = mapa_df[mapa_df['municipio'] == bloque]
                         
+                        if regla.empty:
+                            estante, fila, puesto, ubicacion = "Pendiente", "Pendiente", "Pendiente", "Pendiente"
+                        else:
+                            est = int(regla['estante'].iloc[0])
+                            est_str = f"Estante {est}"
+                            filas = range(int(regla['fila_inicio'].iloc[0]), int(regla['fila_fin'].iloc[0]) + 1)
+                            
+                            # Generar todos los slots posibles para este estante
+                            slots = [(f"Fila {f}", f"Puesto {p}", str(u)) for f in filas for p in range(1, 4) for u in range(1, 21)]
+                            
+                            if est_str not in ocupados_por_estante:
+                                ocupados_por_estante[est_str] = set()
+                                
+                            # Buscar el primer slot libre
+                            slot_encontrado = None
+                            for slot in slots:
+                                if slot not in ocupados_por_estante[est_str]:
+                                    slot_encontrado = slot
+                                    break
+                            
+                            if slot_encontrado:
+                                estante = est_str
+                                fila = slot_encontrado[0]
+                                puesto = slot_encontrado[1]
+                                ubicacion = slot_encontrado[2]
+                                # Registrar el slot como ocupado localmente para el siguiente expediente del Excel
+                                ocupados_por_estante[est_str].add(slot_encontrado)
+                            else:
+                                estante, fila, puesto, ubicacion = est_str, "LLENO", "LLENO", "LLENO"
+
                         df.loc[index, 'estante'] = str(estante)
                         df.loc[index, 'fila'] = str(fila)
                         df.loc[index, 'puesto'] = str(puesto)
                         df.loc[index, 'ubicacion'] = str(ubicacion)
                         df.loc[index, 'status_activo'] = 1
                     
+                    # 3. Guardar todo el lote de golpe en Supabase de manera limpia
                     columnas_permitidas = [
                         'radicado', 'municipio', 'etapa', 'estante', 'fila', 
                         'puesto', 'ubicacion', 'status_activo', 'observaciones', 
@@ -340,7 +382,7 @@ else:
 
                     with conn.engine.connect() as eng_conn:
                         df_final.to_sql('inventario_expedientes', eng_conn, if_exists='append', index=False)
-                    st.success("¡Carga masiva realizada y ubicaciones asignadas correctamente según la capacidad del despacho!")
+                    st.success("¡Carga masiva realizada de forma instantánea y con ubicaciones precisas!")
         df_reporte = conn.query(f"SELECT * FROM inventario_expedientes WHERE usuario_propietario = '{usr}'", ttl=0)
         
         if not df_reporte.empty:
