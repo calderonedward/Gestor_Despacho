@@ -360,10 +360,33 @@ else:
         df_reporte = conn.query(f"SELECT * FROM inventario_expedientes WHERE usuario_propietario = '{usr}'", ttl=0)
         
         if not df_reporte.empty:
-            st.dataframe(df_reporte)
+            st.info("💡 Puedes hacer doble clic en cualquier celda de la tabla inferior (como 'acusado', 'delitos', 'fecha_imputacion', 'etapa', etc.) para modificarla directamente.")
+            
+            # Tabla interactiva para editar los datos en vivo
+            df_editado = st.data_editor(
+                df_reporte,
+                num_rows="dynamic",
+                key="editor_inventario",
+                use_container_width=True,
+                hide_index=True
+            )
+            
+            # Botón para guardar las modificaciones en Supabase
+            if st.button("💾 Guardar Cambios en la Base de Datos"):
+                try:
+                    with conn.engine.connect() as eng_conn:
+                        with eng_conn.begin():
+                            eng_conn.execute(text(f"DELETE FROM inventario_expedientes WHERE usuario_propietario = '{usr}'"))
+                            df_editado.to_sql('inventario_expedientes', eng_conn, if_exists='append', index=False)
+                    st.success("¡Cambios actualizados y guardados correctamente en la base de datos!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error al guardar los cambios: {e}")
+
+            # Sección para descargar el reporte en Excel
             from io import BytesIO
             output = BytesIO()
-            df_reporte.to_excel(output, index=False)
+            df_editado.to_excel(output, index=False)
             
             st.download_button(
                 label="📥 Descargar archivo Excel",
