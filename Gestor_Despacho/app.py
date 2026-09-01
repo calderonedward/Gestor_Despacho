@@ -74,7 +74,11 @@ def asignar_ubicacion_fisica(municipio, etapa, usr):
     
     est = int(regla['estante'].iloc[0])
     filas = range(int(regla['fila_inicio'].iloc[0]), int(regla['fila_fin'].iloc[0]) + 1)
-    slots = [(f"Fila {f}", f"Puesto {p}", str(u)) for f in filas for p in range(1, 4) for u in range(1, 21)]
+    # Leer los límites personalizados de la regla (con respaldo de 3 y 20 si están vacíos)
+    max_puestos = int(regla['puestos_max'].iloc[0]) if 'puestos_max' in regla.columns and pd.notna(regla['puestos_max'].iloc[0]) else 3
+    max_ubic = int(regla['ubic_max'].iloc[0]) if 'ubic_max' in regla.columns and pd.notna(regla['ubic_max'].iloc[0]) else 20
+    
+    slots = [(f"Fila {f}", f"Puesto {p}", str(u)) for f in filas for p in range(1, max_puestos + 1) for u in range(1, max_ubic + 1)]
     
     query = f"SELECT fila, puesto, ubicacion FROM inventario_expedientes WHERE estante = 'Estante {est}' AND usuario_propietario = '{usr}'"
     df_ocupados = conn.query(query, ttl=0)
@@ -422,3 +426,34 @@ else:
             )
         else:
             st.warning("No hay expedientes para generar el reporte.")
+
+    
+    elif eleccion == "🗺️ Configurar Mi Mapa Físico":
+    st.header("⚙️ Configuración de Espacios y Capacidad por Municipio")
+    st.info("💡 Puedes modificar directamente el estante, las filas, los puestos máximos y las ubicaciones por puesto para cada municipio.")
+    
+    # Cargar el mapa actual del usuario
+    mapa_actual = conn.query(f"SELECT * FROM mapas_personales WHERE usuario = '{usr}'", ttl=0)
+    
+    if not mapa_actual.empty:
+        # Editor interactivo para el mapa personal
+        mapa_editado = st.data_editor(
+            mapa_actual,
+            num_rows="dynamic",
+            key="editor_mapa_fisico",
+            use_container_width=True,
+            hide_index=True
+        )
+        
+        if st.button("💾 Guardar Configuración del Mapa"):
+            try:
+                with conn.engine.connect() as eng_conn:
+                    with eng_conn.begin():
+                        eng_conn.execute(text(f"DELETE FROM mapas_personales WHERE usuario = '{usr}'"))
+                        mapa_editado.to_sql('mapas_personales', eng_conn, if_exists='append', index=False)
+                st.success("¡Configuración del mapa físico guardada con éxito!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Error al guardar el mapa: {e}")
+    else:
+        st.warning("No tienes registros en tu mapa físico. Configura uno inicial para comenzar.")
