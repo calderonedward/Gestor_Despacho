@@ -315,31 +315,31 @@ else:
         archivo = st.file_uploader("Sube Excel", type=["xlsx"])
         if archivo and st.button("Cargar"):
             df = pd.read_excel(archivo, dtype=str).fillna("").replace(r'\.0$', '', regex=True)
-                df['usuario_propietario'] = usr
+            df['usuario_propietario'] = usr
                 
-                # Calcular ubicación física para cada fila del Excel automáticamente
-                for index, row in df.iterrows():
-                    mun = str(row.get('municipio', '')).upper()
-                    eta = str(row.get('etapa', ''))
-                    estante, fila, puesto, ubicacion = asignar_ubicacion_fisica(mun, eta, usr)
+            # Calcular ubicación física para cada fila del Excel automáticamente
+            for index, row in df.iterrows():
+                mun = str(row.get('municipio', '')).upper()
+                eta = str(row.get('etapa', ''))
+                estante, fila, puesto, ubicacion = asignar_ubicacion_fisica(mun, eta, usr)
                     
-                    df.loc[index, 'estante'] = str(estante)
-                    df.loc[index, 'fila'] = str(fila)
-                    df.loc[index, 'puesto'] = str(puesto)
-                    df.loc[index, 'ubicacion'] = str(ubicacion)
-                    df.loc[index, 'status_activo'] = 1
+                df.loc[index, 'estante'] = str(estante)
+                df.loc[index, 'fila'] = str(fila)
+                df.loc[index, 'puesto'] = str(puesto)
+                df.loc[index, 'ubicacion'] = str(ubicacion)
+                df.loc[index, 'status_activo'] = 1
                 
-                # Filtrar columnas permitidas para evitar errores de base de datos
-                columnas_permitidas = [
-                    'radicado', 'municipio', 'etapa', 'estante', 'fila', 
-                    'puesto', 'ubicacion', 'status_activo', 'observaciones', 
-                    'acusado', 'delitos', 'usuario_propietario', 'fecha_imputacion'
-                ]
-                df_final = df[[col for col in columnas_permitidas if col in df.columns]]
+            # Filtrar columnas permitidas para evitar errores de base de datos
+            columnas_permitidas = [
+                'radicado', 'municipio', 'etapa', 'estante', 'fila', 
+                'puesto', 'ubicacion', 'status_activo', 'observaciones', 
+                'acusado', 'delitos', 'usuario_propietario', 'fecha_imputacion'
+            ]
+            df_final = df[[col for col in columnas_permitidas if col in df.columns]]
 
-                with conn.engine.connect() as eng_conn:
-                    df_final.to_sql('inventario_expedientes', eng_conn, if_exists='append', index=False)
-                st.success("¡Carga masiva realizada y ubicaciones asignadas automáticamente para tu despacho!")("Cargado exclusivamente para tu despacho.")
+            with conn.engine.connect() as eng_conn:
+                df_final.to_sql('inventario_expedientes', eng_conn, if_exists='append', index=False)
+            st.success("¡Carga masiva realizada y ubicaciones asignadas automáticamente para tu despacho!")("Cargado exclusivamente para tu despacho.")
     elif eleccion == "📥 Descargar Reporte (Excel)":
         st.header("📥 Reporte de Inventario")
         df_reporte = conn.query(f"SELECT * FROM inventario_expedientes WHERE usuario_propietario = '{usr}'", ttl=0)
