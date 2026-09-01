@@ -357,13 +357,13 @@ else:
                             
                     if est_str not in ocupados_por_estante:
                         ocupados_por_estante[est_str] = set()
-                                
-                        # Buscar el primer slot libre
-                        slot_encontrado = None
-                        for slot in slots:
-                    if slot not in ocupados_por_estante[est_str]:
-                        slot_encontrado = slot
-                        break
+                        
+                    # Buscar el primer slot libre
+                    slot_encontrado = None
+                    for slot in slots:
+                        if slot not in ocupados_por_estante[est_str]:
+                            slot_encontrado = slot
+                            break
                             
                     if slot_encontrado:
                         estante = est_str
@@ -375,23 +375,23 @@ else:
                     else:
                         estante, fila, puesto, ubicacion = est_str, "LLENO", "LLENO", "LLENO"
 
-                        df.loc[index, 'estante'] = str(estante)
-                        df.loc[index, 'fila'] = str(fila)
-                        df.loc[index, 'puesto'] = str(puesto)
-                        df.loc[index, 'ubicacion'] = str(ubicacion)
-                        df.loc[index, 'status_activo'] = 1
-                    
-                    # 3. Guardar todo el lote de golpe en Supabase de manera limpia
-                    columnas_permitidas = [
-                        'radicado', 'municipio', 'etapa', 'estante', 'fila', 
-                        'puesto', 'ubicacion', 'status_activo', 'observaciones', 
-                        'acusado', 'delitos', 'usuario_propietario', 'fecha_imputacion'
-                    ]
-                    df_final = df[[col for col in columnas_permitidas if col in df.columns]]
+                    df.loc[index, 'estante'] = str(estante)
+                    df.loc[index, 'fila'] = str(fila)
+                    df.loc[index, 'puesto'] = str(puesto)
+                    df.loc[index, 'ubicacion'] = str(ubicacion)
+                    df.loc[index, 'status_activo'] = 1
+                
+                # 3. Guardar todo el lote de golpe en Supabase de manera limpia
+                columnas_permitidas = [
+                    'radicado', 'municipio', 'etapa', 'estante', 'fila', 
+                    'puesto', 'ubicacion', 'status_activo', 'observaciones', 
+                    'acusado', 'delitos', 'usuario_propietario', 'fecha_imputacion'
+                ]
+                df_final = df[[col for col in columnas_permitidas if col in df.columns]]
 
-                    with conn.engine.connect() as eng_conn:
-                        df_final.to_sql('inventario_expedientes', eng_conn, if_exists='append', index=False)
-                    st.success("¡Carga masiva realizada de forma instantánea y con ubicaciones precisas!")
+                with conn.engine.connect() as eng_conn:
+                    df_final.to_sql('inventario_expedientes', eng_conn, if_exists='append', index=False)
+                st.success("¡Carga masiva realizada de forma instantánea y con ubicaciones precisas!")
         df_reporte = conn.query(f"SELECT * FROM inventario_expedientes WHERE usuario_propietario = '{usr}'", ttl=0)
         
         if not df_reporte.empty:
@@ -432,7 +432,6 @@ else:
         else:
             st.warning("No hay expedientes para generar el reporte.")
 
-    
     elif eleccion == "🗺️ Configurar Mi Mapa Físico":
         st.header("⚙️ Configuración de Espacios y Capacidad por Municipio")
         st.info("💡 Puedes modificar directamente el estante, las filas, los puestos máximos y las ubicaciones por puesto para cada municipio.")
@@ -443,22 +442,22 @@ else:
         if not mapa_actual.empty:
             # Editor interactivo para el mapa personal
             mapa_editado = st.data_editor(
-            mapa_actual,
-            num_rows="dynamic",
-            key="editor_mapa_fisico",
-            use_container_width=True,
-            hide_index=True
-        )
+                mapa_actual,
+                num_rows="dynamic",
+                key="editor_mapa_fisico",
+                use_container_width=True,
+                hide_index=True
+            )
         
-        if st.button("💾 Guardar Configuración del Mapa"):
-            try:
-                with conn.engine.connect() as eng_conn:
-                    with eng_conn.begin():
-                        eng_conn.execute(text(f"DELETE FROM mapas_personales WHERE usuario = '{usr}'"))
-                        mapa_editado.to_sql('mapas_personales', eng_conn, if_exists='append', index=False)
-                st.success("¡Configuración del mapa físico guardada con éxito!")
-                st.rerun()
-            except Exception as e:
-                st.error(f"Error al guardar el mapa: {e}")
-    else:
-        st.warning("No tienes registros en tu mapa físico. Configura uno inicial para comenzar.")
+            if st.button("💾 Guardar Configuración del Mapa"):
+                try:
+                    with conn.engine.connect() as eng_conn:
+                        with eng_conn.begin():
+                            eng_conn.execute(text(f"DELETE FROM mapas_personales WHERE usuario = '{usr}'"))
+                            mapa_editado.to_sql('mapas_personales', eng_conn, if_exists='append', index=False)
+                    st.success("¡Configuración del mapa físico guardada con éxito!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error al guardar el mapa: {e}")
+        else:
+            st.warning("No tienes registros en tu mapa físico. Configura uno inicial para comenzar.")
