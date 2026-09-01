@@ -341,14 +341,11 @@ else:
                         regla = mapa_df[mapa_df['municipio'] == bloque]
                         
                         if regla.empty:
-                            estante, fila, puesto, ubicacion = "Pendiente", "Pendiente", "Pendiente", "Pendiente"
-                        else:
-                            est = int(regla['estante'].iloc[0])
-
-                            else:
-                est = int(regla['estante'].iloc[0])
-                est_str = f"Estante {est}"
-                filas = range(int(regla['fila_inicio'].iloc[0]), int(regla['fila_fin'].iloc[0]) + 1)
+                        estante, fila, puesto, ubicacion = "Pendiente", "Pendiente", "Pendiente", "Pendiente"
+                    else:
+                        est = int(regla['estante'].iloc[0])
+                        est_str = f"Estante {est}"
+                        filas = range(int(regla['fila_inicio'].iloc[0]), int(regla['fila_fin'].iloc[0]) + 1)
                 
                 # Leer límites personalizados en la carga masiva
                 max_puestos = int(regla['puestos_max'].iloc[0]) if 'puestos_max' in regla.columns and pd.notna(regla['puestos_max'].iloc[0]) else 3
