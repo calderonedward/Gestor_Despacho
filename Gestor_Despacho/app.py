@@ -314,32 +314,47 @@ else:
     elif eleccion == "📤 Carga Masiva (Excel)":
         archivo = st.file_uploader("Sube Excel", type=["xlsx"])
         if archivo and st.button("Cargar"):
-            df = pd.read_excel(archivo, dtype=str).fillna("").replace(r'\.0$', '', regex=True)
-            df['usuario_propietario'] = usr
-                
-            # Calcular ubicación física para cada fila del Excel automáticamente
-            for index, row in df.iterrows():
-                mun = str(row.get('municipio', '')).upper()
-                eta = str(row.get('etapa', ''))
-                estante, fila, puesto, ubicacion = asignar_ubicacion_fisica(mun, eta, usr)
+                    df = pd.read_excel(archivo, dtype=str).fillna("").replace(r'\.0$', '', regex=True)
+                    df['usuario_propietario'] = usr
                     
-                df.loc[index, 'estante'] = str(estante)
-                df.loc[index, 'fila'] = str(fila)
-                df.loc[index, 'puesto'] = str(puesto)
-                df.loc[index, 'ubicacion'] = str(ubicacion)
-                df.loc[index, 'status_activo'] = 1
-                
-            # Filtrar columnas permitidas para evitar errores de base de datos
-            columnas_permitidas = [
-                'radicado', 'municipio', 'etapa', 'estante', 'fila', 
-                'puesto', 'ubicacion', 'status_activo', 'observaciones', 
-                'acusado', 'delitos', 'usuario_propietario', 'fecha_imputacion'
-            ]
-            df_final = df[[col for col in columnas_permitidas if col in df.columns]]
+                    # Cargar el mapa del usuario una sola vez en memoria (evita el TimeoutError)
+                    mapa_df = obtener_mapa(usr)
+                    
+                    for index, row in df.iterrows():
+                        mun = str(row.get('municipio', '')).upper()
+                        eta = str(row.get('etapa', ''))
+                        
+                        bloque = "SENTENCIAS" if eta in ["Sentencia", "Preclusión", "Archivo"] else mun
+                        regla = mapa_df[mapa_df['municipio'] == bloque]
+                        
+                        if regla.empty:
+                            estante, fila, puesto, ubicacion = "Pendiente", "Pendiente", "Pendiente", "Pendiente"
+                        else:
+                            estante = int(regla['estante'].iloc[0])
+                            filas_disponibles = range(int(regla['fila_inicio'].iloc[0]), int(regla['fila_fin'].iloc[0]) + 1)
+                            fila_escogida = filas_disponibles[index % len(filas_disponibles)]
+                            
+                            estante = str(estante)
+                            fila = str(fila_escogida)
+                            puesto = str((index % 5) + 1)
+                            ubicacion = f"Estante {estante} - Fila {fila} - Puesto {puesto}"
 
-            with conn.engine.connect() as eng_conn:
-                df_final.to_sql('inventario_expedientes', eng_conn, if_exists='append', index=False)
-            st.success("¡Carga masiva realizada y ubicaciones asignadas automáticamente para tu despacho!")("Cargado exclusivamente para tu despacho.")
+                        df.loc[index, 'estante'] = estante
+                        df.loc[index, 'fila'] = fila
+                        df.loc[index, 'puesto'] = puesto
+                        df.loc[index, 'ubicacion'] = ubicacion
+                        df.loc[index, 'status_activo'] = 1
+                    
+                    columnas_permitidas = [
+                        'radicado', 'municipio', 'etapa', 'estante', 'fila', 
+                        'puesto', 'ubicacion', 'status_activo', 'observaciones', 
+                        'acusado', 'delitos', 'usuario_propietario', 'fecha_imputacion'
+                    ]
+                    df_final = df[[col for col in columnas_permitidas if col in df.columns]]
+
+                    with conn.engine.connect() as eng_conn:
+                        df_final.to_sql('inventario_expedientes', eng_conn, if_exists='append', index=False)
+                    st.success("¡Carga masiva realizada y ubicaciones asignadas automáticamente para tu despacho!")
     elif eleccion == "📥 Descargar Reporte (Excel)":
         st.header("📥 Reporte de Inventario")
         df_reporte = conn.query(f"SELECT * FROM inventario_expedientes WHERE usuario_propietario = '{usr}'", ttl=0)
