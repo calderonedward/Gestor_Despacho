@@ -61,10 +61,8 @@ def inicializar_bd():
 inicializar_bd()
 
 def obtener_mapa(usr):
-    # Consulta el mapa exclusivo del usuario actual trayendo también puestos y ubicaciones máximas
     df = conn.query(f"SELECT municipio, estante, fila_inicio, fila_fin, puestos_max, ubic_max FROM mapas_personales WHERE usuario = '{usr}'", ttl=0)
     if df.empty:
-        # Si no tiene mapa, le creamos uno por defecto con 3 puestos y 20 ubicaciones por defecto
         with conn.session as s:
             s.execute(text('''INSERT INTO mapas_personales (usuario, municipio, estante, fila_inicio, fila_fin, puestos_max, ubic_max) VALUES 
                 (:u, 'CERRITO', 1, 1, 2, 3, 20), (:u, 'CANDELARIA', 1, 3, 4, 3, 20), (:u, 'PALMIRA', 1, 5, 6, 3, 20), 
@@ -84,7 +82,6 @@ def asignar_ubicacion_fisica(municipio, etapa, usr):
     
     est = int(regla['estante'].iloc[0])
     filas = range(int(regla['fila_inicio'].iloc[0]), int(regla['fila_fin'].iloc[0]) + 1)
-    # Leer los límites personalizados de la regla (con respaldo de 3 y 20 si están vacíos)
     max_puestos = int(regla['puestos_max'].iloc[0]) if 'puestos_max' in regla.columns and pd.notna(regla['puestos_max'].iloc[0]) else 3
     max_ubic = int(regla['ubic_max'].iloc[0]) if 'ubic_max' in regla.columns and pd.notna(regla['ubic_max'].iloc[0]) else 20
     
@@ -146,15 +143,13 @@ else:
         "📝 Ingresar Nuevo Expediente", 
         "🔄 Actualizar / Cerrar Caso", 
         "📊 Ver Inventario", 
-        "📥 Carga Masiva (Excel)", 
+        " 📥 Carga Masiva (Excel)", 
         "🗺️ Configurar Mi Mapa Físico"
     ]
     eleccion = st.sidebar.radio("Navegación:", menu)
 
     if eleccion == "⚙️ Configuración":
         st.header("⚙️ Configuración del Despacho")
-        
-        # --- Nombre de la fiscalía ---
         nuevo_nombre = st.text_input("Nombre de la Fiscalía asignada:", value=st.session_state['fiscalia_actual'])
         if st.button("Actualizar Perfil"):
             with conn.session as s:
@@ -165,7 +160,6 @@ else:
             st.rerun()
 
         st.write("---")
-        # --- CAMBIO DE CONTRASEÑA PERSONAL ---
         st.write("### 🔑 Cambiar mi contraseña")
         with st.form("cambiar_pwd"):
             pwd_ant = st.text_input("Contraseña actual", type="password")
@@ -182,12 +176,9 @@ else:
                 else:
                     st.error("La contraseña actual es incorrecta.")
 
-        # Opciones de creación y gestión de usuarios (Solo visibles para 'admin')
         if usr == 'admin':
             st.write("---")
             st.write("### 👑 Panel de Administrador")
-            
-            # --- CREAR COLEGAS ---
             st.write("#### 👥 Crear Cuenta para un Colega")
             with st.form("nuevo_usuario"):
                 n_usr = st.text_input("Nuevo Usuario (ej. fiscal_02)")
@@ -203,7 +194,6 @@ else:
                         except:
                             st.error("Error: Ese usuario ya existe.")
 
-            # --- RESTABLECER CONTRASEÑAS ---
             st.write("#### 🔄 Restablecer contraseña de un colega")
             with st.form("reset_pwd"):
                 lista_usuarios = conn.query("SELECT usuario FROM usuarios_despacho", ttl=0)['usuario'].tolist()
@@ -225,7 +215,6 @@ else:
             df_resultado = conn.query(query, ttl=0)
             st.dataframe(df_resultado)
             
-            # --- NUEVA SECCIÓN: EDICIÓN DE OBSERVACIONES ---
             if not df_resultado.empty:
                 st.write("---")
                 st.write("### 📝 Editar Observaciones")
@@ -250,7 +239,6 @@ else:
             a = st.text_input("Acusado*")
             d = st.text_input("Delito*")
             f_imp = st.date_input("Fecha de Imputación")
-            
             m = st.selectbox("Municipio", obtener_mapa(usr)['municipio'].tolist())
             e = st.selectbox("Etapa", ["Indagación", "Imputación", "Acusación", "Sentencia", "Preclusión"])
             
@@ -276,7 +264,6 @@ else:
             if st.form_submit_button("Actualizar"):
                 with conn.session as s:
                     fecha_str = str(f_imp)
-                    
                     if n in ["Sentencia", "Preclusión", "Archivo"]:
                         e, f, p, u = asignar_ubicacion_fisica("SENTENCIAS", n, usr)
                         s.execute(text("""UPDATE inventario_expedientes 
@@ -308,23 +295,21 @@ else:
             st.success("Reorganizado"); st.rerun()
 
     elif eleccion == " 📥 Carga Masiva (Excel)":
-        archivo = st.file_uploader("Sube Excel", type=["xlsx"])
+        st.header("📥 Carga Masiva de Expedientes mediante Excel")
+        archivo = st.file_uploader("Sube tu archivo Excel", type=["xlsx"])
         if archivo and st.button("Cargar"):
             df = pd.read_excel(archivo, dtype=str).fillna("").replace(r'\.0$', '', regex=True)
             df['usuario_propietario'] = usr
 
-            # 1. Cargar mapas y registros ocupados UNA sola vez en memoria antes del ciclo
             mapa_df = obtener_mapa(usr)
             df_ocupados_global = conn.query(f"SELECT estante, fila, puesto, ubicacion FROM inventario_expedientes WHERE usuario_propietario = '{usr}'", ttl=0)
             
-            # Crear un registro local de ocupados en memoria para no saturar la base de datos
             ocupados_por_estante = {}
             for est in mapa_df['estante'].unique():
                 est_str = f"Estante {int(est)}"
                 subset = df_ocupados_global[df_ocupados_global['estante'] == est_str]
                 ocupados_por_estante[est_str] = set((str(r['fila']), str(r['puesto']), str(r['ubicacion'])) for _, r in subset.iterrows())
 
-            # 2. Procesar la asignación de manera local y veloz
             for index, row in df.iterrows():
                 mun = str(row.get('municipio', '')).upper()
                 eta = str(row.get('etapa', ''))
@@ -344,17 +329,14 @@ else:
                     est_str = f"Estante {est}"
                     filas = range(int(regla['fila_inicio'].iloc[0]), int(regla['fila_fin'].iloc[0]) + 1)
                     
-                    # Leer límites personalizados en la carga masiva
                     max_puestos = int(regla['puestos_max'].iloc[0]) if 'puestos_max' in regla.columns and pd.notna(regla['puestos_max'].iloc[0]) else 3
                     max_ubic = int(regla['ubic_max'].iloc[0]) if 'ubic_max' in regla.columns and pd.notna(regla['ubic_max'].iloc[0]) else 20
                     
-                    # Generar los slots usando el límite real configurado en tu mapa
                     slots = [(f"Fila {f}", f"Puesto {p}", str(u)) for f in filas for p in range(1, max_puestos + 1) for u in range(1, max_ubic + 1)]
 
                     if est_str not in ocupados_por_estante:
                         ocupados_por_estante[est_str] = set()
                         
-                    # Buscar el primer slot libre
                     slot_encontrado = None
                     for slot in slots:
                         if slot not in ocupados_por_estante[est_str]:
@@ -366,7 +348,6 @@ else:
                         fila = slot_encontrado[0]
                         puesto = slot_encontrado[1]
                         ubicacion = slot_encontrado[2]
-                        # Registrar el slot como ocupado localmente para el siguiente expediente del Excel
                         ocupados_por_estante[est_str].add(slot_encontrado)
                     else:
                         estante, fila, puesto, ubicacion = est_str, "LLENO", "LLENO", "LLENO"
@@ -377,7 +358,6 @@ else:
                     df.loc[index, 'ubicacion'] = str(ubicacion)
                     df.loc[index, 'status_activo'] = 1
             
-            # 3. Guardar todo el lote de golpe en Supabase de manera limpia
             columnas_permitidas = [
                 'radicado', 'municipio', 'etapa', 'estante', 'fila', 
                 'puesto', 'ubicacion', 'status_activo', 'observaciones', 
@@ -392,9 +372,7 @@ else:
         df_reporte = conn.query(f"SELECT * FROM inventario_expedientes WHERE usuario_propietario = '{usr}'", ttl=0)
         
         if not df_reporte.empty:
-            st.info("💡 Puedes hacer doble clic en cualquier celda de la tabla inferior (como 'acusado', 'delitos', 'fecha_imputacion', 'etapa', etc.) para modificarla directamente.")
-            
-            # Tabla interactiva para editar los datos en vivo
+            st.info("💡 Puedes hacer doble clic en cualquier celda de la tabla inferior para modificarla directamente.")
             df_editado = st.data_editor(
                 df_reporte,
                 num_rows="dynamic",
@@ -403,7 +381,6 @@ else:
                 hide_index=True
             )
             
-            # Botón para guardar las modificaciones en Supabase
             if st.button("💾 Guardar Cambios en la Base de Datos"):
                 try:
                     with conn.engine.connect() as eng_conn:
@@ -415,7 +392,6 @@ else:
                 except Exception as e:
                     st.error(f"Error al guardar los cambios: {e}")
 
-            # Sección para descargar el reporte en Excel
             from io import BytesIO
             output = BytesIO()
             df_editado.to_excel(output, index=False)
@@ -433,11 +409,9 @@ else:
         st.header("⚙️ Configuración de Espacios y Capacidad por Municipio")
         st.info("💡 Puedes modificar directamente el estante, las filas, los puestos máximos y las ubicaciones por puesto para cada municipio.")
     
-        # Cargar el mapa actual del usuario
         mapa_actual = conn.query(f"SELECT * FROM mapas_personales WHERE usuario = '{usr}'", ttl=0)
     
         if not mapa_actual.empty:
-            # Editor interactivo para el mapa personal
             mapa_editado = st.data_editor(
                 mapa_actual,
                 num_rows="dynamic",
