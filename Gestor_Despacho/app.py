@@ -51,16 +51,16 @@ def inicializar_bd():
 inicializar_bd()
 
 def obtener_mapa(usr):
-    # Consulta el mapa exclusivo del usuario actual
-    df = conn.query(f"SELECT municipio, estante, fila_inicio, fila_fin FROM mapas_personales WHERE usuario = '{usr}'", ttl=0)
+    # Consulta el mapa exclusivo del usuario actual trayendo también puestos y ubicaciones máximas
+    df = conn.query(f"SELECT municipio, estante, fila_inicio, fila_fin, puestos_max, ubic_max FROM mapas_personales WHERE usuario = '{usr}'", ttl=0)
     if df.empty:
-        # Si no tiene mapa (es un colega nuevo), le creamos uno por defecto
+        # Si no tiene mapa, le creamos uno por defecto con 3 puestos y 20 ubicaciones por defecto
         with conn.session as s:
-            s.execute(text('''INSERT INTO mapas_personales (usuario, municipio, estante, fila_inicio, fila_fin) VALUES 
-            (:u, 'CERRITO', 1, 1, 2), (:u, 'CANDELARIA', 1, 3, 4), (:u, 'PALMIRA', 1, 5, 6),
-            (:u, 'FLORIDA', 2, 1, 2), (:u, 'PRADERA', 2, 3, 4), (:u, 'SENTENCIAS', 2, 5, 6)'''), {"u": usr})
+            s.execute(text('''INSERT INTO mapas_personales (usuario, municipio, estante, fila_inicio, fila_fin, puestos_max, ubic_max) VALUES 
+                (:u, 'CERRITO', 1, 1, 2, 3, 20), (:u, 'CANDELARIA', 1, 3, 4, 3, 20), (:u, 'PALMIRA', 1, 5, 6, 3, 20), 
+                (:u, 'FLORIDA', 2, 1, 2, 3, 20), (:u, 'PRADERA', 2, 3, 4, 3, 20), (:u, 'SENTENCIAS', 2, 5, 6, 3, 20)'''), {"u": usr})
             s.commit()
-        df = conn.query(f"SELECT municipio, estante, fila_inicio, fila_fin FROM mapas_personales WHERE usuario = '{usr}'", ttl=0)
+        df = conn.query(f"SELECT municipio, estante, fila_inicio, fila_fin, puestos_max, ubic_max FROM mapas_personales WHERE usuario = '{usr}'", ttl=0)
     return df
 
 # ==========================================
