@@ -36,6 +36,19 @@ def inicializar_bd():
             id SERIAL PRIMARY KEY, usuario TEXT, municipio TEXT, estante INTEGER, 
             fila_inicio INTEGER, fila_fin INTEGER, puestos_max INTEGER, ubic_max INTEGER)'''))
         
+        # Intentar agregar las columnas de límites por si la tabla ya existía sin ellas
+        try:
+            s.execute(text('ALTER TABLE mapas_personales ADD COLUMN puestos_max INTEGER'))
+            s.commit()
+        except:
+            s.rollback()
+            
+        try:
+            s.execute(text('ALTER TABLE mapas_personales ADD COLUMN ubic_max INTEGER'))
+            s.commit()
+        except:
+            s.rollback()
+        
         # 4. Configurar o actualizar el usuario admin con la contraseña '12345'
         pwd_hash = hashlib.sha256("12345".encode()).hexdigest()
         s.execute(text("""
