@@ -318,14 +318,14 @@ else:
 elif eleccion == " 📥 Carga Masiva (Excel)":
     archivo = st.file_uploader("Sube Excel", type=["xlsx"])
     if archivo and st.button("Cargar"):
-        df = pd.read_excel(archivo, dtype=str).fillna("").replace(r'\.0$', '', regex=True)
-        df['usuario_propietario'] = usr
+            df = pd.read_excel(archivo, dtype=str).fillna("").replace(r'\.0$', '', regex=True)
+            df['usuario_propietario'] = usr
 
-        # 1. Cargar mapas y registros ocupados UNA sola vez en memoria antes del ciclo
-        mapa_df = obtener_mapa(usr)
-        df_ocupados_global = conn.query(f"SELECT estante, fila, puesto, ubicacion FROM inventario_expedientes WHERE usuario_propietario = '{usr}'", ttl=0)
-
-        # Crear un registro local de ocupados en memoria para no saturar la base de datos
+            # 1. Cargar mapas y registros ocupados UNA sola vez en memoria antes del ciclo
+            mapa_df = obtener_mapa(usr)
+            df_ocupados_global = conn.query(f"SELECT estante, fila, puesto, ubicacion FROM inventario_expedientes WHERE usuario_propietario = '{usr}'", ttl=0)
+            
+            # Crear un registro local de ocupados en memoria para no saturar la base de datos
         ocupados_por_estante = {}
         for est in mapa_df['estante'].unique():
             est_str = f"Estante {int(est)}"
