@@ -429,15 +429,15 @@ else:
 
     
     elif eleccion == "🗺️ Configurar Mi Mapa Físico":
-    st.header("⚙️ Configuración de Espacios y Capacidad por Municipio")
-    st.info("💡 Puedes modificar directamente el estante, las filas, los puestos máximos y las ubicaciones por puesto para cada municipio.")
+        st.header("⚙️ Configuración de Espacios y Capacidad por Municipio")
+        st.info("💡 Puedes modificar directamente el estante, las filas, los puestos máximos y las ubicaciones por puesto para cada municipio.")
     
-    # Cargar el mapa actual del usuario
-    mapa_actual = conn.query(f"SELECT * FROM mapas_personales WHERE usuario = '{usr}'", ttl=0)
+        # Cargar el mapa actual del usuario
+        mapa_actual = conn.query(f"SELECT * FROM mapas_personales WHERE usuario = '{usr}'", ttl=0)
     
-    if not mapa_actual.empty:
-        # Editor interactivo para el mapa personal
-        mapa_editado = st.data_editor(
+        if not mapa_actual.empty:
+            # Editor interactivo para el mapa personal
+            mapa_editado = st.data_editor(
             mapa_actual,
             num_rows="dynamic",
             key="editor_mapa_fisico",
