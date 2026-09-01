@@ -315,24 +315,24 @@ else:
                 s.commit()
             st.success("Reorganizado"); st.rerun()
 
-    elif eleccion == "📤 Carga Masiva (Excel)":
-        archivo = st.file_uploader("Sube Excel", type=["xlsx"])
-        if archivo and st.button("Cargar"):
-                    df = pd.read_excel(archivo, dtype=str).fillna("").replace(r'\.0$', '', regex=True)
-                    df['usuario_propietario'] = usr
-                    
-                    # 1. Cargar mapas y registros ocupados UNA sola vez en memoria antes del ciclo
-                    mapa_df = obtener_mapa(usr)
-                    df_ocupados_global = conn.query(f"SELECT estante, fila, puesto, ubicacion FROM inventario_expedientes WHERE usuario_propietario = '{usr}'", ttl=0)
-                    
-                    # Crear un registro local de ocupados en memoria para no saturar la base de datos
-                    ocupados_por_estante = {}
-                    for est in mapa_df['estante'].unique():
-                        est_str = f"Estante {int(est)}"
-                        subset = df_ocupados_global[df_ocupados_global['estante'] == est_str]
-                        ocupados_por_estante[est_str] = set((str(r['fila']), str(r['puesto']), str(r['ubicacion'])) for _, r in subset.iterrows())
+elif eleccion == " 📥 Carga Masiva (Excel)":
+    archivo = st.file_uploader("Sube Excel", type=["xlsx"])
+    if archivo and st.button("Cargar"):
+        df = pd.read_excel(archivo, dtype=str).fillna("").replace(r'\.0$', '', regex=True)
+        df['usuario_propietario'] = usr
 
-# 2. Procesar la asignación de manera local y veloz
+        # 1. Cargar mapas y registros ocupados UNA sola vez en memoria antes del ciclo
+        mapa_df = obtener_mapa(usr)
+        df_ocupados_global = conn.query(f"SELECT estante, fila, puesto, ubicacion FROM inventario_expedientes WHERE usuario_propietario = '{usr}'", ttl=0)
+
+        # Crear un registro local de ocupados en memoria para no saturar la base de datos
+        ocupados_por_estante = {}
+        for est in mapa_df['estante'].unique():
+            est_str = f"Estante {int(est)}"
+            subset = df_ocupados_global[df_ocupados_global['estante'] == est_str]
+            ocupados_por_estante[est_str] = set((str(r['fila']), str(r['puesto']), str(r['ubicacion'])) for _, r in subset.iterrows())
+
+        # 2. Procesar la asignación de manera local y veloz
         for index, row in df.iterrows():
             mun = str(row.get('municipio', '')).upper()
             eta = str(row.get('etapa', ''))
@@ -384,7 +384,7 @@ else:
                 df.loc[index, 'puesto'] = str(puesto)
                 df.loc[index, 'ubicacion'] = str(ubicacion)
                 df.loc[index, 'status_activo'] = 1
-        
+                
         # 3. Guardar todo el lote de golpe en Supabase de manera limpia
         columnas_permitidas = [
             'radicado', 'municipio', 'etapa', 'estante', 'fila', 
