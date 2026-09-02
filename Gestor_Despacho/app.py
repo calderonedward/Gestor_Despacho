@@ -22,34 +22,29 @@ def inicializar_bd():
             observaciones TEXT, acusado TEXT, delitos TEXT, usuario_propietario TEXT,
             fecha_imputacion TEXT)'''))
         
-        # 2. Intentar agregar la columna por si ya existía sin ella
         try:
             s.execute(text('ALTER TABLE inventario_expedientes ADD COLUMN fecha_imputacion TEXT'))
             s.commit()
         except:
             s.rollback() 
             
-        # 3. Resto de tablas
+        # 2. Resto de tablas
         s.execute(text('''CREATE TABLE IF NOT EXISTS usuarios_despacho (
             usuario TEXT PRIMARY KEY, password TEXT, nombre_fiscalia TEXT)'''))
+            
         s.execute(text('''CREATE TABLE IF NOT EXISTS mapas_personales (
             id SERIAL PRIMARY KEY, usuario TEXT, municipio TEXT, estante INTEGER, 
             fila_inicio INTEGER, fila_fin INTEGER, puestos_max INTEGER, ubic_max INTEGER)'''))
         
-        # Intentar agregar las columnas de límites por si la tabla ya existía sin ellas
-        try:
-            s.execute(text('ALTER TABLE mapas_personales ADD COLUMN puestos_max INTEGER'))
-            s.commit()
-        except:
-            s.rollback()
-            
-        try:
-            s.execute(text('ALTER TABLE mapas_personales ADD COLUMN ubic_max INTEGER'))
-            s.commit()
-        except:
-            s.rollback()
+        # Sincronizar columnas de límites si la tabla ya existía
+        for col in ['puestos_max', 'ubic_max']:
+            try:
+                s.execute(text(f'ALTER TABLE mapas_personales ADD COLUMN {col} INTEGER'))
+                s.commit()
+            except:
+                s.rollback()
         
-        # 4. Configurar o actualizar el usuario admin con la contraseña '12345'
+        # 3. Usuario administrador por defecto
         pwd_hash = hashlib.sha256("12345".encode()).hexdigest()
         s.execute(text("""
             INSERT INTO usuarios_despacho (usuario, password, nombre_fiscalia) 
@@ -72,7 +67,7 @@ def obtener_mapa(usr):
     return df
 
 # ==========================================
-# 1. LÓGICA DE ASIGNACIÓN FÍSICA INDEPENDIENTE
+# 1. LÓGICA DE ASIGNACIÓN FÍSICA
 # ==========================================
 def asignar_ubicacion_fisica(municipio, etapa, usr):
     mapa_df = obtener_mapa(usr)
@@ -97,7 +92,7 @@ def asignar_ubicacion_fisica(municipio, etapa, usr):
     return f"Estante {est}", "LLENO", "LLENO", "LLENO"
 
 # ==========================================
-# 2. SISTEMA DE LOGIN Y SESIÓN
+# 2. SISTEMA DE LOGIN
 # ==========================================
 if 'autenticado' not in st.session_state:
     st.session_state['autenticado'] = False
@@ -124,9 +119,6 @@ if not st.session_state['autenticado']:
                 else:
                     st.error("Credenciales incorrectas.")
 else:
-    # ==========================================
-    # 3. INTERFAZ PRINCIPAL PRIVADA
-    # ==========================================
     usr = st.session_state['usuario_actual']
     
     st.sidebar.title(f"⚖️ {st.session_state['fiscalia_actual']}")
@@ -143,7 +135,7 @@ else:
         "📝 Ingresar Nuevo Expediente", 
         "🔄 Actualizar / Cerrar Caso", 
         "📊 Ver Inventario", 
-        " 📥 Carga Masiva (Excel)", 
+        "📥 Carga Masiva (Excel)", 
         "🗺️ Configurar Mi Mapa Físico"
     ]
     eleccion = st.sidebar.radio("Navegación:", menu)
@@ -179,7 +171,6 @@ else:
         if usr == 'admin':
             st.write("---")
             st.write("### 👑 Panel de Administrador")
-            st.write("#### 👥 Crear Cuenta para un Colega")
             with st.form("nuevo_usuario"):
                 n_usr = st.text_input("Nuevo Usuario (ej. fiscal_02)")
                 n_pwd = st.text_input("Contraseña Temporal", type="password")
@@ -194,12 +185,10 @@ else:
                         except:
                             st.error("Error: Ese usuario ya existe.")
 
-            st.write("#### 🔄 Restablecer contraseña de un colega")
             with st.form("reset_pwd"):
                 lista_usuarios = conn.query("SELECT usuario FROM usuarios_despacho", ttl=0)['usuario'].tolist()
                 r_usr = st.selectbox("Seleccionar usuario", lista_usuarios)
                 r_pwd = st.text_input("Nueva contraseña para este colega", type="password")
-                
                 if st.form_submit_button("Restablecer Clave"):
                     with conn.session as s:
                         s.execute(text("UPDATE usuarios_despacho SET password = :p WHERE usuario = :u"), 
@@ -223,9 +212,7 @@ else:
                     obs_actual = df_resultado.iloc[0]['observaciones']
                     if pd.isna(obs_actual) or obs_actual == "None" or obs_actual is None:
                         obs_actual = ""
-                        
                     nueva_obs = st.text_area(f"Añadir o modificar observaciones para el radicado {radicado_actual}:", value=obs_actual)
-                    
                     if st.form_submit_button("Guardar Observación"):
                         with conn.session as s:
                             s.execute(text("UPDATE inventario_expedientes SET observaciones = :obs WHERE radicado = :rad AND usuario_propietario = :usr"), 
@@ -294,7 +281,7 @@ else:
                 s.commit()
             st.success("Reorganizado"); st.rerun()
 
-    elif eleccion == " 📥 Carga Masiva (Excel)":
+    elif eleccion == "📥 Carga Masiva (Excel)":
         st.header("📥 Carga Masiva de Expedientes mediante Excel")
         archivo = st.file_uploader("Sube tu archivo Excel", type=["xlsx"])
         if archivo and st.button("Cargar"):
@@ -409,9 +396,10 @@ else:
         st.header("⚙️ Configuración de Espacios y Capacidad por Municipio")
         st.info("💡 Puedes modificar directamente el estante, las filas, los puestos máximos y las ubicaciones por puesto para cada municipio.")
     
-        mapa_actual = conn.query(f"SELECT * FROM mapas_personales WHERE usuario = '{usr}'", ttl=0)
+        mapa_actual = obtener_mapa(usr)
     
         if not mapa_actual.empty:
+            # Editor habilitado con filas dinámicas para agregar municipios y límites personalizados
             mapa_editado = st.data_editor(
                 mapa_actual,
                 num_rows="dynamic",
@@ -425,6 +413,7 @@ else:
                     with conn.engine.connect() as eng_conn:
                         with eng_conn.begin():
                             eng_conn.execute(text(f"DELETE FROM mapas_personales WHERE usuario = '{usr}'"))
+                            mapa_editado['usuario'] = usr
                             mapa_editado.to_sql('mapas_personales', eng_conn, if_exists='append', index=False)
                     st.success("¡Configuración del mapa físico guardada con éxito!")
                     st.rerun()
