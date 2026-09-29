@@ -296,18 +296,51 @@ else:
                 st.success("Caso actualizado exitosamente.")
 
     elif eleccion == "📊 Ver Inventario":
+        st.header("📊 Inventario de Expedientes")
+        
         df = conn.query(f"SELECT * FROM inventario_expedientes WHERE usuario_propietario = '{usr}'", ttl=0)
-        if not df.empty and 'usuario_propietario' in df.columns:
-            df = df.drop(columns=['usuario_propietario'])
-        st.dataframe(df)
-        if st.button("✨ Auto-Asignar Ubicaciones"):
-            casos_sin_ubicacion = conn.query(f"SELECT id, municipio, etapa FROM inventario_expedientes WHERE usuario_propietario = '{usr}' AND (estante IS NULL OR estante='')", ttl=0)
-            with conn.session as s:
-                for _, caso in casos_sin_ubicacion.iterrows():
-                    e, f, p, u = asignar_ubicacion_fisica(caso['municipio'], caso['etapa'], usr)
-                    s.execute(text("UPDATE inventario_expedientes SET estante=:e, fila=:f, puesto=:p, ubicacion=:u WHERE id=:id"),
-                              {"e":e, "f":f, "p":p, "u":u, "id":caso['id']})
-            st.success("Reorganizado"); st.rerun()
+        
+        if not df.empty:
+            if 'usuario_propietario' in df.columns:
+                df = df.drop(columns=['usuario_propietario'])
+                
+            # Separar los datos internamente usando la columna status_activo
+            df_activos = df[df['status_activo'] == 1]
+            df_inactivos = df[df['status_activo'] == 0]
+            
+            # Crear pestañas interactivas en la pantalla
+            tab1, tab2, tab3 = st.tabs(["🟢 Casos Activos", "🔴 Casos Inactivos (Cerrados)", "📋 Todos los Casos"])
+            
+            with tab1:
+                st.write(f"**Total casos activos:** {len(df_activos)}")
+                st.dataframe(df_activos, use_container_width=True)
+                
+            with tab2:
+                st.write(f"**Total casos inactivos:** {len(df_inactivos)}")
+                st.dataframe(df_inactivos, use_container_width=True)
+                
+            with tab3:
+                st.write(f"**Total general:** {len(df)}")
+                st.dataframe(df, use_container_width=True)
+                
+            st.write("---")
+            if st.button("✨ Auto-Asignar Ubicaciones a Casos Pendientes"):
+                # Busca los que tengan el estante vacío o digan 'Pendiente'
+                query_pendientes = f"SELECT id, municipio, etapa FROM inventario_expedientes WHERE usuario_propietario = '{usr}' AND (estante IS NULL OR estante='' OR estante='Pendiente')"
+                casos_sin_ubicacion = conn.query(query_pendientes, ttl=0)
+                
+                if not casos_sin_ubicacion.empty:
+                    with conn.session as s:
+                        for _, caso in casos_sin_ubicacion.iterrows():
+                            e, f, p, u = asignar_ubicacion_fisica(caso['municipio'], caso['etapa'], usr)
+                            s.execute(text("UPDATE inventario_expedientes SET estante=:e, fila=:f, puesto=:p, ubicacion=:u WHERE id=:id"),
+                                      {"e":e, "f":f, "p":p, "u":u, "id":caso['id']})
+                    st.success("¡Ubicaciones reorganizadas con éxito!")
+                    st.rerun()
+                else:
+                    st.info("Todos tus casos ya tienen una ubicación física asignada.")
+        else:
+            st.warning("No tienes expedientes registrados en el inventario.")
 
     elif eleccion == "📥 Carga Masiva (Excel)":
         st.header("📥 Carga Masiva de Expedientes mediante Excel")
