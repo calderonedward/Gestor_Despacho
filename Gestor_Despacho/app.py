@@ -8,7 +8,30 @@ st.set_page_config(page_title="Gestor de Despacho", page_icon="⚖️", layout="
 # ==========================================
 # 0. SEGURIDAD Y CONEXIÓN
 # ==========================================
-conn = st.connection("supabase", type="sql", dialects={"postgresql": "postgresql+psycopg2"})
+from sqlalchemy import create_engine, text
+import pandas as pd
+
+# Obtener la URL directamente de los secretos de Streamlit y forzar el uso de psycopg2
+db_url = st.secrets["connections"]["supabase"]["url"]
+if db_url.startswith("postgres://"):
+    db_url = db_url.replace("postgres://", "postgresql+psycopg2://", 1)
+elif db_url.startswith("postgresql://") and "+" not in db_url.split("://")[0]:
+    db_url = db_url.replace("postgresql://", "postgresql+psycopg2://", 1)
+
+# Crear el motor de base de datos protegido
+_engine = create_engine(db_url)
+
+class SimpleConnectionWrapper:
+    def __init__(self, engine):
+        self.engine = engine
+    def query(self, sql, ttl=0):
+        with self.engine.connect() as connection:
+            return pd.read_sql(text(sql), connection)
+    @property
+    def session(self):
+        return self.engine.begin()
+
+conn = SimpleConnectionWrapper(_engine)
 
 def generar_hash(password):
     return hashlib.sha256(str.encode(password)).hexdigest()
