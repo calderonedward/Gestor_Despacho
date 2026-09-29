@@ -3,3 +3,4 @@ sqlalchemy
 pandas
 openpyxl
 psycopg2-binary
+psycopg
