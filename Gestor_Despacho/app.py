@@ -272,15 +272,31 @@ else:
 
     elif eleccion == "🔄 Actualizar / Cerrar Caso":
         st.header("🔄 Actualizar / Cerrar Caso")
+        
+        # Contenedor para mostrar los mensajes sin que se borren al instante
+        msg_container = st.container()
+        
         with st.form("f2"):
             r = st.text_input("Radicado del caso:")
             n = st.selectbox("Nueva Etapa", ["Indagación", "Imputación", "Acusación", "Sentencia", "Preclusión", "Archivo"])
             f_imp = st.date_input("Fecha de Imputación (si aplica):")
             obs = st.text_area("Observaciones:")
             
-            if st.form_submit_button("Actualizar"):
+            submit_btn = st.form_submit_button("Actualizar")
+            
+        if submit_btn:
+            # 1. Buscamos el caso en la base de datos ANTES de que se modifique
+            df_actual = conn.query(f"SELECT * FROM inventario_expedientes WHERE radicado='{r}' AND usuario_propietario='{usr}'", ttl=0)
+            
+            if not df_actual.empty:
+                df_actual = df_actual.fillna("") # Limpiar espacios vacíos
+                
+                # 2. Guardamos una copia exacta del estado anterior en la memoria de la sesión
+                st.session_state['backup_caso'] = df_actual.iloc[0].to_dict()
+                
                 with conn.session as s:
                     fecha_str = str(f_imp)
+                    
                     if n in ["Sentencia", "Preclusión", "Archivo"]:
                         e, f, p, u = asignar_ubicacion_fisica("SENTENCIAS", n, usr)
                         s.execute(text("""UPDATE inventario_expedientes 
@@ -288,12 +304,40 @@ else:
                                           ubicacion=:u, observaciones=:obs, fecha_imputacion=:f_imp 
                                           WHERE radicado=:r AND usuario_propietario=:usr"""),
                                   {"n":n, "e":e, "f":f, "p":p, "u":u, "obs":obs, "f_imp":fecha_str, "r":r, "usr":usr})
+                        estado_str = "🔴 Inactivo (Enviado a Sentencias/Archivo)"
                     else: 
                         s.execute(text("""UPDATE inventario_expedientes 
-                                          SET etapa=:n, observaciones=:obs, fecha_imputacion=:f_imp 
+                                          SET etapa=:n, status_activo=1, observaciones=:obs, fecha_imputacion=:f_imp 
                                           WHERE radicado=:r AND usuario_propietario=:usr"""),
                                   {"n":n, "obs":obs, "f_imp":fecha_str, "r":r, "usr":usr})
-                st.success("Caso actualizado exitosamente.")
+                        estado_str = "🟢 Activo"
+                        
+                msg_container.success(f"Caso actualizado exitosamente a la etapa '{n}'. Estado actual: {estado_str}")
+            else:
+                msg_container.error(f"No se encontró el radicado {r}. Verifica el número.")
+
+        # 3. Mostrar el botón mágico de DESHACER si existe un backup en la memoria
+        if 'backup_caso' in st.session_state and st.session_state['backup_caso'] is not None:
+            backup = st.session_state['backup_caso']
+            st.write("---")
+            st.warning(f"⚠️ ¿Digitaste mal? El último caso modificado fue el radicado **{backup['radicado']}**.")
+            
+            if st.button("↩️ Deshacer error (Restaurar estado y recuperar su ubicación original)"):
+                with conn.session as s:
+                    # Sobrescribimos el caso con los datos exactos que guardamos en la fotografía
+                    s.execute(text("""UPDATE inventario_expedientes 
+                                      SET etapa=:eta, status_activo=:act, estante=:est, fila=:fil, 
+                                          puesto=:pue, ubicacion=:ubi, observaciones=:obs, fecha_imputacion=:f_imp 
+                                      WHERE radicado=:rad AND usuario_propietario=:usr"""),
+                              {"eta": backup['etapa'], "act": backup['status_activo'], 
+                               "est": backup['estante'], "fil": backup['fila'], 
+                               "pue": backup['puesto'], "ubi": backup['ubicacion'], 
+                               "obs": backup['observaciones'], "f_imp": backup['fecha_imputacion'],
+                               "rad": backup['radicado'], "usr": usr})
+                
+                # Vaciamos la memoria para que el botón desaparezca
+                st.session_state['backup_caso'] = None
+                st.success("¡Acción deshecha con éxito! El caso ha recuperado su etapa anterior y su espacio original en el estante.")
 
     elif eleccion == "📊 Ver Inventario":
         st.header("📊 Inventario de Expedientes")
