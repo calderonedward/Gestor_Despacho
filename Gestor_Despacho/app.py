@@ -440,14 +440,35 @@ else:
                 except Exception as e:
                     st.error(f"Error al guardar los cambios: {e}")
 
+            st.write("---")
+            st.write("### 📥 Opciones de Descarga (Excel)")
+            filtro_descarga = st.radio(
+                "Selecciona qué expedientes deseas exportar:", 
+                ["🟢 Casos Activos", "🔴 Casos Inactivos (Cerrados)", "📋 Todos los Casos"],
+                horizontal=True
+            )
+            
+            # Crear una copia para no alterar la tabla interactiva
+            df_descarga = df_editado.copy()
+            
+            # Aplicar el filtro según tu selección
+            if filtro_descarga == "🟢 Casos Activos":
+                df_descarga = df_descarga[df_descarga['status_activo'] == 1]
+                nombre_archivo = f"Reporte_Activos_{usr}.xlsx"
+            elif filtro_descarga == "🔴 Casos Inactivos (Cerrados)":
+                df_descarga = df_descarga[df_descarga['status_activo'] == 0]
+                nombre_archivo = f"Reporte_Inactivos_{usr}.xlsx"
+            else:
+                nombre_archivo = f"Reporte_Completo_{usr}.xlsx"
+
             from io import BytesIO
             output = BytesIO()
-            df_editado.to_excel(output, index=False)
+            df_descarga.to_excel(output, index=False)
             
             st.download_button(
-                label="📥 Descargar archivo Excel",
+                label=f"📥 Descargar archivo Excel",
                 data=output.getvalue(),
-                file_name=f"Reporte_Despacho_{usr}.xlsx",
+                file_name=nombre_archivo,
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
         else:
