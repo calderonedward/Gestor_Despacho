@@ -8,7 +8,7 @@ st.set_page_config(page_title="Gestor de Despacho", page_icon="⚖️", layout="
 # ==========================================
 # 0. SEGURIDAD Y CONEXIÓN
 # ==========================================
-conn = st.connection("supabase", type="sql")
+conn = st.connection("supabase", type="sql", dialects={"postgresql": "postgresql+psycopg2"})
 
 def generar_hash(password):
     return hashlib.sha256(str.encode(password)).hexdigest()
