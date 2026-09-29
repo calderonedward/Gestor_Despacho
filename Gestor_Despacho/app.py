@@ -304,12 +304,16 @@ else:
             if 'usuario_propietario' in df.columns:
                 df = df.drop(columns=['usuario_propietario'])
                 
-            # Separar los datos internamente usando la columna status_activo
+            # Separar los datos
             df_activos = df[df['status_activo'] == 1]
             df_inactivos = df[df['status_activo'] == 0]
             
-            # Crear pestañas interactivas en la pantalla
-            tab1, tab2, tab3 = st.tabs(["🟢 Casos Activos", "🔴 Casos Inactivos (Cerrados)", "📋 Todos los Casos"])
+            # Buscar duplicados ignorando los campos vacíos
+            df_validos = df[df['radicado'].astype(str).str.strip() != ""]
+            duplicados = df_validos[df_validos.duplicated(subset=['radicado'], keep=False)]
+            
+            # Crear 4 pestañas interactivas
+            tab1, tab2, tab3, tab4 = st.tabs(["🟢 Casos Activos", "🔴 Casos Inactivos", "📋 Todos", "⚠️ Duplicados"])
             
             with tab1:
                 st.write(f"**Total casos activos:** {len(df_activos)}")
@@ -323,9 +327,34 @@ else:
                 st.write(f"**Total general:** {len(df)}")
                 st.dataframe(df, use_container_width=True)
                 
+            with tab4:
+                st.write("### 🚨 Detección de Radicados Duplicados")
+                if not duplicados.empty:
+                    st.warning(f"Se detectaron {len(duplicados)} registros con radicados repetidos. Revisa la tabla:")
+                    # Mostramos los duplicados ordenados para que los veas juntos
+                    st.dataframe(duplicados.sort_values(by='radicado'), use_container_width=True)
+                    
+                    st.info("💡 Si presionas el botón, el sistema eliminará los registros más antiguos y conservará únicamente la última versión ingresada de cada radicado.")
+                    if st.button("🧹 Eliminar duplicados (Conservar el más reciente)"):
+                        with conn.session as s:
+                            s.execute(text("""
+                                DELETE FROM inventario_expedientes a USING (
+                                    SELECT MAX(id) as max_id, radicado
+                                    FROM inventario_expedientes 
+                                    WHERE usuario_propietario = :usr AND radicado IS NOT NULL AND radicado != ''
+                                    GROUP BY radicado HAVING COUNT(*) > 1
+                                ) b
+                                WHERE a.radicado = b.radicado 
+                                AND a.id <> b.max_id 
+                                AND a.usuario_propietario = :usr
+                            """), {"usr": usr})
+                        st.success("¡Limpieza completada! Solo se conservó un registro por cada radicado.")
+                        st.rerun()
+                else:
+                    st.success("¡Todo en orden! No se encontraron radicados duplicados en tu sistema.")
+                
             st.write("---")
             if st.button("✨ Auto-Asignar Ubicaciones a Casos Pendientes"):
-                # Busca los que tengan el estante vacío o digan 'Pendiente'
                 query_pendientes = f"SELECT id, municipio, etapa FROM inventario_expedientes WHERE usuario_propietario = '{usr}' AND (estante IS NULL OR estante='' OR estante='Pendiente')"
                 casos_sin_ubicacion = conn.query(query_pendientes, ttl=0)
                 
