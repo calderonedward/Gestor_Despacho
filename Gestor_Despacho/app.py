@@ -52,35 +52,37 @@ def generar_hash(password):
     return hashlib.sha256(str.encode(password)).hexdigest()
 
 def inicializar_bd():
+    # 1. Crear todas las tablas principales de forma segura en una sola transacción
     with conn.session as s:
-        # 1. Crear tabla si no existe
         s.execute(text('''CREATE TABLE IF NOT EXISTS inventario_expedientes (
             id SERIAL PRIMARY KEY, radicado TEXT, municipio TEXT, etapa TEXT, 
             estante TEXT, fila TEXT, puesto TEXT, ubicacion TEXT, status_activo INTEGER, 
             observaciones TEXT, acusado TEXT, delitos TEXT, usuario_propietario TEXT,
             fecha_imputacion TEXT)'''))
-        
-        try:
-            s.execute(text('ALTER TABLE inventario_expedientes ADD COLUMN fecha_imputacion TEXT'))
-        except:
-            pass 
             
-        # 2. Resto de tablas
         s.execute(text('''CREATE TABLE IF NOT EXISTS usuarios_despacho (
             usuario TEXT PRIMARY KEY, password TEXT, nombre_fiscalia TEXT)'''))
             
         s.execute(text('''CREATE TABLE IF NOT EXISTS mapas_personales (
             id SERIAL PRIMARY KEY, usuario TEXT, municipio TEXT, estante INTEGER, 
             fila_inicio INTEGER, fila_fin INTEGER, puestos_max INTEGER, ubic_max INTEGER)'''))
+    
+    # 2. Intentar agregar columnas nuevas de forma AISLADA para evitar InFailedSqlTransaction
+    try:
+        with conn.session as s:
+            s.execute(text('ALTER TABLE inventario_expedientes ADD COLUMN fecha_imputacion TEXT'))
+    except:
+        pass 
         
-        # Sincronizar columnas de límites si la tabla ya existía
-        for col in ['puestos_max', 'ubic_max']:
-            try:
+    for col in ['puestos_max', 'ubic_max']:
+        try:
+            with conn.session as s:
                 s.execute(text(f'ALTER TABLE mapas_personales ADD COLUMN {col} INTEGER'))
-            except:
-                pass
-        
-        # 3. Usuario administrador por defecto
+        except:
+            pass
+    
+    # 3. Insertar usuario administrador por defecto en su propia transacción
+    with conn.session as s:
         pwd_hash = hashlib.sha256("12345".encode()).hexdigest()
         s.execute(text("""
             INSERT INTO usuarios_despacho (usuario, password, nombre_fiscalia) 
