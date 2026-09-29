@@ -1,35 +1,50 @@
 import streamlit as st
 import pandas as pd
-from sqlalchemy import text
+from sqlalchemy import create_engine, text
 import hashlib
 
 st.set_page_config(page_title="Gestor de Despacho", page_icon="⚖️", layout="wide")
 
 # ==========================================
-# 0. SEGURIDAD Y CONEXIÓN
+# 0. SEGURIDAD Y CONEXIÓN ROBUSTA (PSYCOPG2)
 # ==========================================
-from sqlalchemy import create_engine, text
-import pandas as pd
-
-# Obtener la URL directamente de los secretos de Streamlit y forzar el uso de psycopg2
 db_url = st.secrets["connections"]["supabase"]["url"]
 if db_url.startswith("postgres://"):
     db_url = db_url.replace("postgres://", "postgresql+psycopg2://", 1)
 elif db_url.startswith("postgresql://") and "+" not in db_url.split("://")[0]:
     db_url = db_url.replace("postgresql://", "postgresql+psycopg2://", 1)
 
-# Crear el motor de base de datos protegido
 _engine = create_engine(db_url)
+
+class SimpleSessionContext:
+    def __init__(self, engine):
+        self.engine = engine
+        self.conn = None
+        self.trans = None
+
+    def __enter__(self):
+        self.conn = self.engine.connect()
+        self.trans = self.conn.begin()
+        return self.conn
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_type:
+            self.trans.rollback()
+        else:
+            self.trans.commit()
+        self.conn.close()
 
 class SimpleConnectionWrapper:
     def __init__(self, engine):
         self.engine = engine
+    
     def query(self, sql, ttl=0):
         with self.engine.connect() as connection:
             return pd.read_sql(text(sql), connection)
+            
     @property
     def session(self):
-        return self.engine.begin()
+        return SimpleSessionContext(self.engine)
 
 conn = SimpleConnectionWrapper(_engine)
 
@@ -47,9 +62,8 @@ def inicializar_bd():
         
         try:
             s.execute(text('ALTER TABLE inventario_expedientes ADD COLUMN fecha_imputacion TEXT'))
-            s.commit()
         except:
-            s.rollback() 
+            pass 
             
         # 2. Resto de tablas
         s.execute(text('''CREATE TABLE IF NOT EXISTS usuarios_despacho (
@@ -63,9 +77,8 @@ def inicializar_bd():
         for col in ['puestos_max', 'ubic_max']:
             try:
                 s.execute(text(f'ALTER TABLE mapas_personales ADD COLUMN {col} INTEGER'))
-                s.commit()
             except:
-                s.rollback()
+                pass
         
         # 3. Usuario administrador por defecto
         pwd_hash = hashlib.sha256("12345".encode()).hexdigest()
@@ -74,7 +87,6 @@ def inicializar_bd():
             VALUES ('admin', :pwd, 'Fiscalía 01 Seccional')
             ON CONFLICT (usuario) DO UPDATE SET password = :pwd
         """), {"pwd": pwd_hash})
-        s.commit()
 
 inicializar_bd()
 
@@ -85,7 +97,6 @@ def obtener_mapa(usr):
             s.execute(text('''INSERT INTO mapas_personales (usuario, municipio, estante, fila_inicio, fila_fin, puestos_max, ubic_max) VALUES 
                 (:u, 'CERRITO', 1, 1, 2, 3, 20), (:u, 'CANDELARIA', 1, 3, 4, 3, 20), (:u, 'PALMIRA', 1, 5, 6, 3, 20), 
                 (:u, 'FLORIDA', 2, 1, 2, 3, 20), (:u, 'PRADERA', 2, 3, 4, 3, 20), (:u, 'SENTENCIAS', 2, 5, 6, 3, 20)'''), {"u": usr})
-            s.commit()
         df = conn.query(f"SELECT municipio, estante, fila_inicio, fila_fin, puestos_max, ubic_max FROM mapas_personales WHERE usuario = '{usr}'", ttl=0)
     return df
 
@@ -169,7 +180,6 @@ else:
         if st.button("Actualizar Perfil"):
             with conn.session as s:
                 s.execute(text("UPDATE usuarios_despacho SET nombre_fiscalia = :val WHERE usuario = :usr"), {"val": nuevo_nombre, "usr": usr})
-                s.commit()
             st.session_state['fiscalia_actual'] = nuevo_nombre
             st.success("Perfil actualizado.")
             st.rerun()
@@ -185,8 +195,7 @@ else:
                 if not df_check.empty:
                     with conn.session as s:
                         s.execute(text("UPDATE usuarios_despacho SET password = :p WHERE usuario = :u"), 
-                                  {"p": generar_hash(pwd_nueva), "u": usr})
-                        s.commit()
+                                    {"p": generar_hash(pwd_nueva), "u": usr})
                     st.success("Contraseña actualizada correctamente.")
                 else:
                     st.error("La contraseña actual es incorrecta.")
@@ -202,8 +211,7 @@ else:
                     with conn.session as s:
                         try:
                             s.execute(text("INSERT INTO usuarios_despacho (usuario, password, nombre_fiscalia) VALUES (:u, :p, :f)"), 
-                                      {"u": n_usr, "p": generar_hash(n_pwd), "f": n_fisc})
-                            s.commit()
+                                        {"u": n_usr, "p": generar_hash(n_pwd), "f": n_fisc})
                             st.success(f"Cuenta '{n_usr}' creada.")
                         except:
                             st.error("Error: Ese usuario ya existe.")
@@ -215,8 +223,7 @@ else:
                 if st.form_submit_button("Restablecer Clave"):
                     with conn.session as s:
                         s.execute(text("UPDATE usuarios_despacho SET password = :p WHERE usuario = :u"), 
-                                  {"p": generar_hash(r_pwd), "u": r_usr})
-                        s.commit()
+                                    {"p": generar_hash(r_pwd), "u": r_usr})
                     st.success(f"La contraseña de {r_usr} ha sido cambiada.")
 
     elif eleccion == "🔎 Consulta Rápida":
@@ -239,8 +246,7 @@ else:
                     if st.form_submit_button("Guardar Observación"):
                         with conn.session as s:
                             s.execute(text("UPDATE inventario_expedientes SET observaciones = :obs WHERE radicado = :rad AND usuario_propietario = :usr"), 
-                                      {"obs": nueva_obs, "rad": radicado_actual, "usr": usr})
-                            s.commit()
+                                        {"obs": nueva_obs, "rad": radicado_actual, "usr": usr})
                         st.success("¡Observaciones actualizadas correctamente!")
 
     elif eleccion == "📝 Ingresar Nuevo Expediente":
@@ -259,8 +265,7 @@ else:
                     s.execute(text("""INSERT INTO inventario_expedientes 
                                         (radicado, acusado, delitos, municipio, etapa, estante, fila, puesto, ubicacion, status_activo, usuario_propietario, fecha_imputacion) 
                                         VALUES (:r, :a, :d, :m, :e, :est, :fil, :pto, :ubi, 1, :usr, :f_imp)"""), 
-                                  {"r":r, "a":a, "d":d, "m":m, "e":e, "est":est, "fil":fil, "pto":pto, "ubi":ubi, "usr":usr, "f_imp":fecha_str})
-                    s.commit()
+                                {"r":r, "a":a, "d":d, "m":m, "e":e, "est":est, "fil":fil, "pto":pto, "ubi":ubi, "usr":usr, "f_imp":fecha_str})
                 st.success(f"Guardado en {est}, {fil}, {pto}, Ubi {ubi}")
 
     elif eleccion == "🔄 Actualizar / Cerrar Caso":
@@ -286,7 +291,6 @@ else:
                                           SET etapa=:n, observaciones=:obs, fecha_imputacion=:f_imp 
                                           WHERE radicado=:r AND usuario_propietario=:usr"""),
                                   {"n":n, "obs":obs, "f_imp":fecha_str, "r":r, "usr":usr})
-                    s.commit()
                 st.success("Caso actualizado exitosamente.")
 
     elif eleccion == "📊 Ver Inventario":
@@ -301,7 +305,6 @@ else:
                     e, f, p, u = asignar_ubicacion_fisica(caso['municipio'], caso['etapa'], usr)
                     s.execute(text("UPDATE inventario_expedientes SET estante=:e, fila=:f, puesto=:p, ubicacion=:u WHERE id=:id"),
                               {"e":e, "f":f, "p":p, "u":u, "id":caso['id']})
-                s.commit()
             st.success("Reorganizado"); st.rerun()
 
     elif eleccion == "📥 Carga Masiva (Excel)":
@@ -375,7 +378,7 @@ else:
             ]
             df_final = df[[col for col in columnas_permitidas if col in df.columns]]
 
-            with conn.engine.connect() as eng_conn:
+            with _engine.connect() as eng_conn:
                 df_final.to_sql('inventario_expedientes', eng_conn, if_exists='append', index=False)
             st.success("¡Carga masiva realizada de forma instantánea y con ubicaciones precisas!")
             
@@ -393,7 +396,7 @@ else:
             
             if st.button("💾 Guardar Cambios en la Base de Datos"):
                 try:
-                    with conn.engine.connect() as eng_conn:
+                    with _engine.connect() as eng_conn:
                         with eng_conn.begin():
                             eng_conn.execute(text(f"DELETE FROM inventario_expedientes WHERE usuario_propietario = '{usr}'"))
                             df_editado.to_sql('inventario_expedientes', eng_conn, if_exists='append', index=False)
@@ -422,7 +425,6 @@ else:
         mapa_actual = obtener_mapa(usr)
     
         if not mapa_actual.empty:
-            # Editor habilitado con filas dinámicas para agregar municipios y límites personalizados
             mapa_editado = st.data_editor(
                 mapa_actual,
                 num_rows="dynamic",
@@ -433,7 +435,7 @@ else:
         
             if st.button("💾 Guardar Configuración del Mapa"):
                 try:
-                    with conn.engine.connect() as eng_conn:
+                    with _engine.connect() as eng_conn:
                         with eng_conn.begin():
                             eng_conn.execute(text(f"DELETE FROM mapas_personales WHERE usuario = '{usr}'"))
                             mapa_editado['usuario'] = usr
