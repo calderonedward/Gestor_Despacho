@@ -285,13 +285,12 @@ else:
             submit_btn = st.form_submit_button("Actualizar")
             
         if submit_btn:
-            # 1. Buscamos el caso en la base de datos ANTES de que se modifique
+            # Buscamos el caso en la base de datos ANTES de que se modifique
             df_actual = conn.query(f"SELECT * FROM inventario_expedientes WHERE radicado='{r}' AND usuario_propietario='{usr}'", ttl=0)
             
             if not df_actual.empty:
-                df_actual = df_actual.fillna("") # Limpiar espacios vacíos
-                
-                # 2. Guardamos una copia exacta del estado anterior en la memoria de la sesión
+                df_actual = df_actual.fillna("")
+                # Guardamos una copia exacta en la memoria
                 st.session_state['backup_caso'] = df_actual.iloc[0].to_dict()
                 
                 with conn.session as s:
@@ -316,15 +315,14 @@ else:
             else:
                 msg_container.error(f"No se encontró el radicado {r}. Verifica el número.")
 
-        # 3. Mostrar el botón mágico de DESHACER si existe un backup en la memoria
+        # Botón mágico de DESHACER
         if 'backup_caso' in st.session_state and st.session_state['backup_caso'] is not None:
             backup = st.session_state['backup_caso']
             st.write("---")
             st.warning(f"⚠️ ¿Digitaste mal? El último caso modificado fue el radicado **{backup['radicado']}**.")
             
-            if st.button("↩️ Deshacer error (Restaurar estado y recuperar su ubicación original)"):
+            if st.button("↩️ Deshacer error (Restaurar estado y recuperar ubicación)"):
                 with conn.session as s:
-                    # Sobrescribimos el caso con los datos exactos que guardamos en la fotografía
                     s.execute(text("""UPDATE inventario_expedientes 
                                       SET etapa=:eta, status_activo=:act, estante=:est, fila=:fil, 
                                           puesto=:pue, ubicacion=:ubi, observaciones=:obs, fecha_imputacion=:f_imp 
@@ -334,11 +332,37 @@ else:
                                "pue": backup['puesto'], "ubi": backup['ubicacion'], 
                                "obs": backup['observaciones'], "f_imp": backup['fecha_imputacion'],
                                "rad": backup['radicado'], "usr": usr})
-                
-                # Vaciamos la memoria para que el botón desaparezca
                 st.session_state['backup_caso'] = None
-                st.success("¡Acción deshecha con éxito! El caso ha recuperado su etapa anterior y su espacio original en el estante.")
+                st.success("¡Acción deshecha con éxito! El caso ha recuperado su etapa anterior y su espacio original.")
 
+        # ==========================================
+        # NUEVA SECCIÓN: ELIMINAR CASO DEFINITIVAMENTE
+        # ==========================================
+        st.write("---")
+        st.write("### 🗑️ Eliminar Registro Definitivamente")
+        st.info("💡 Si borras un caso aquí, se eliminará por completo del sistema y su espacio en el estante quedará libre para el próximo caso que ingreses.")
+        
+        with st.form("form_eliminar"):
+            rad_eliminar = st.text_input("Ingresa el Radicado exacto a eliminar:")
+            # Casilla de seguridad para evitar borrados accidentales
+            confirmar = st.checkbox("Estoy seguro de que quiero borrar este caso por completo.")
+            
+            if st.form_submit_button("🚨 Eliminar Expediente"):
+                if not confirmar:
+                    st.error("Debes marcar la casilla de confirmación para poder eliminar.")
+                elif len(rad_eliminar) < 3:
+                    st.error("Ingresa un radicado válido.")
+                else:
+                    # Verificamos si existe antes de borrarlo
+                    df_check = conn.query(f"SELECT * FROM inventario_expedientes WHERE radicado='{rad_eliminar}' AND usuario_propietario='{usr}'", ttl=0)
+                    
+                    if not df_check.empty:
+                        with conn.session as s:
+                            s.execute(text("DELETE FROM inventario_expedientes WHERE radicado=:r AND usuario_propietario=:u"), 
+                                      {"r": rad_eliminar, "u": usr})
+                        st.success(f"¡El radicado {rad_eliminar} ha sido borrado del sistema! Su espacio físico ya está disponible.")
+                    else:
+                        st.error(f"No se encontró el radicado {rad_eliminar} en tu inventario.")
     elif eleccion == "📊 Ver Inventario":
         st.header("📊 Inventario de Expedientes")
         
