@@ -504,4 +504,4 @@ else:
                     
                     # Ordenar por los de mayor urgencia
                     df_det = df_det.sort_values(by='Días Efectivos', ascending=False)
-                    df_det['Fecha Captura'] = df_det['fecha_detencion_dt'].dt.strftime('%
+                    df_det['Fecha Captura'] = df_det['fecha_detencion_dt'].dt.strftime('%Y-%m-%d')
