@@ -65,6 +65,7 @@ def inicializar_bd():
             id SERIAL PRIMARY KEY, usuario TEXT, municipio TEXT, estante INTEGER, 
             fila_inicio INTEGER, fila_fin INTEGER, puestos_max INTEGER, ubic_max INTEGER)'''))
     
+    # Agregar columnas de fechas y detención
     for col in ['fecha_imputacion', 'detenido', 'fecha_detencion']:
         try:
             with conn.session as s:
@@ -72,6 +73,13 @@ def inicializar_bd():
         except:
             pass 
             
+    # Agregar columna de maniobras dilatorias
+    try:
+        with conn.session as s:
+            s.execute(text('ALTER TABLE inventario_expedientes ADD COLUMN maniobras_dilatorias INTEGER DEFAULT 0'))
+    except:
+        pass
+
     for col in ['puestos_max', 'ubic_max']:
         try:
             with conn.session as s:
@@ -236,13 +244,15 @@ else:
             e = st.selectbox("Etapa", ["Indagación", "Imputación", "Acusación", "Sentencia", "Preclusión"])
             
             st.write("---")
-            st.write("### 📅 Fechas y Estado de Detención")
-            col1, col2 = st.columns(2)
+            st.write("### 📅 Fechas y Detención")
+            col1, col2, col3 = st.columns(3)
             with col1:
-                f_imp = st.date_input("Fecha de Imputación (Si aplica)")
+                f_imp = st.date_input("Fecha Imputación (Si aplica)")
             with col2:
-                es_det = st.selectbox("¿El acusado está detenido?", ["No", "Sí"])
-                f_det = st.date_input("Fecha de Detención (Si aplica)")
+                es_det = st.selectbox("¿Detenido?", ["No", "Sí"])
+                f_det = st.date_input("Fecha Detención")
+            with col3:
+                maniobras = st.number_input("Maniobras Dilatorias (Días)", min_value=0, value=0, step=1)
             
             if st.form_submit_button("Guardar Expediente"):
                 est, fil, pto, ubi = asignar_ubicacion_fisica(m, e, usr)
@@ -251,13 +261,14 @@ else:
                     fecha_det_str = str(f_det) if es_det == "Sí" else ""
                     
                     s.execute(text("""INSERT INTO inventario_expedientes 
-                                        (radicado, acusado, delitos, municipio, etapa, estante, fila, puesto, ubicacion, status_activo, usuario_propietario, fecha_imputacion, detenido, fecha_detencion) 
-                                        VALUES (:r, :a, :d, :m, :e, :est, :fil, :pto, :ubi, 1, :usr, :f_imp, :det, :f_det)"""), 
-                                {"r":r, "a":a, "d":d, "m":m, "e":e, "est":est, "fil":fil, "pto":pto, "ubi":ubi, "usr":usr, "f_imp":fecha_str, "det":es_det, "f_det":fecha_det_str})
+                                        (radicado, acusado, delitos, municipio, etapa, estante, fila, puesto, ubicacion, status_activo, usuario_propietario, fecha_imputacion, detenido, fecha_detencion, maniobras_dilatorias) 
+                                        VALUES (:r, :a, :d, :m, :e, :est, :fil, :pto, :ubi, 1, :usr, :f_imp, :det, :f_det, :man)"""), 
+                                {"r":r, "a":a, "d":d, "m":m, "e":e, "est":est, "fil":fil, "pto":pto, "ubi":ubi, "usr":usr, "f_imp":fecha_str, "det":es_det, "f_det":fecha_det_str, "man":maniobras})
                 st.success(f"Guardado en {est}, {fil}, {pto}, Ubi {ubi}")
 
     elif eleccion == "🔄 Actualizar / Cerrar Caso":
         st.header("🔄 Actualizar / Cerrar Caso")
+        st.info("💡 Consejo: También puedes actualizar las fechas o maniobras haciendo doble clic en la tabla de 'Ver Inventario'.")
         msg_container = st.container()
         
         with st.form("f2"):
@@ -265,13 +276,14 @@ else:
             n = st.selectbox("Nueva Etapa", ["Indagación", "Imputación", "Acusación", "Sentencia", "Preclusión", "Archivo"])
             
             st.write("---")
-            st.write("### 📅 Actualizar Fechas y Detención")
-            col1, col2 = st.columns(2)
+            col1, col2, col3 = st.columns(3)
             with col1:
                 f_imp = st.date_input("Fecha de Imputación:")
             with col2:
-                es_det = st.selectbox("¿El acusado está detenido?", ["No", "Sí"])
-                f_det = st.date_input("Fecha de Detención:")
+                es_det = st.selectbox("¿Detenido?", ["No", "Sí"])
+                f_det = st.date_input("Fecha Detención:")
+            with col3:
+                maniobras = st.number_input("Maniobras Dilatorias (Días)", min_value=0, value=0, step=1)
                 
             obs = st.text_area("Observaciones:")
             submit_btn = st.form_submit_button("Actualizar Expediente")
@@ -291,18 +303,18 @@ else:
                         e, f, p, u = asignar_ubicacion_fisica("SENTENCIAS", n, usr)
                         s.execute(text("""UPDATE inventario_expedientes 
                                           SET etapa=:n, status_activo=0, estante=:e, fila=:f, puesto=:p, 
-                                          ubicacion=:u, observaciones=:obs, fecha_imputacion=:f_imp, detenido=:det, fecha_detencion=:f_det
+                                          ubicacion=:u, observaciones=:obs, fecha_imputacion=:f_imp, detenido=:det, fecha_detencion=:f_det, maniobras_dilatorias=:man
                                           WHERE radicado=:r AND usuario_propietario=:usr"""),
-                                  {"n":n, "e":e, "f":f, "p":p, "u":u, "obs":obs, "f_imp":fecha_str, "det":es_det, "f_det":fecha_det_str, "r":r, "usr":usr})
+                                  {"n":n, "e":e, "f":f, "p":p, "u":u, "obs":obs, "f_imp":fecha_str, "det":es_det, "f_det":fecha_det_str, "man":maniobras, "r":r, "usr":usr})
                         estado_str = "🔴 Inactivo (Enviado a Sentencias/Archivo)"
                     else: 
                         s.execute(text("""UPDATE inventario_expedientes 
-                                          SET etapa=:n, status_activo=1, observaciones=:obs, fecha_imputacion=:f_imp, detenido=:det, fecha_detencion=:f_det 
+                                          SET etapa=:n, status_activo=1, observaciones=:obs, fecha_imputacion=:f_imp, detenido=:det, fecha_detencion=:f_det, maniobras_dilatorias=:man 
                                           WHERE radicado=:r AND usuario_propietario=:usr"""),
-                                  {"n":n, "obs":obs, "f_imp":fecha_str, "det":es_det, "f_det":fecha_det_str, "r":r, "usr":usr})
+                                  {"n":n, "obs":obs, "f_imp":fecha_str, "det":es_det, "f_det":fecha_det_str, "man":maniobras, "r":r, "usr":usr})
                         estado_str = "🟢 Activo"
                         
-                msg_container.success(f"Caso actualizado exitosamente a la etapa '{n}'. Estado actual: {estado_str}")
+                msg_container.success(f"Caso actualizado a la etapa '{n}'. Estado actual: {estado_str}")
             else:
                 msg_container.error(f"No se encontró el radicado {r}.")
 
@@ -314,17 +326,20 @@ else:
             if st.button("↩️ Deshacer error (Restaurar estado y recuperar ubicación)"):
                 det_bak = backup.get('detenido', '')
                 f_det_bak = backup.get('fecha_detencion', '')
+                man_bak = backup.get('maniobras_dilatorias', 0)
+                if pd.isna(man_bak) or man_bak == "": man_bak = 0
+                
                 with conn.session as s:
                     s.execute(text("""UPDATE inventario_expedientes 
                                       SET etapa=:eta, status_activo=:act, estante=:est, fila=:fil, 
                                           puesto=:pue, ubicacion=:ubi, observaciones=:obs, fecha_imputacion=:f_imp,
-                                          detenido=:det, fecha_detencion=:f_det
+                                          detenido=:det, fecha_detencion=:f_det, maniobras_dilatorias=:man
                                       WHERE radicado=:rad AND usuario_propietario=:usr"""),
                               {"eta": backup['etapa'], "act": backup['status_activo'], 
                                "est": backup['estante'], "fil": backup['fila'], 
                                "pue": backup['puesto'], "ubi": backup['ubicacion'], 
                                "obs": backup['observaciones'], "f_imp": backup['fecha_imputacion'],
-                               "det": det_bak, "f_det": f_det_bak,
+                               "det": det_bak, "f_det": f_det_bak, "man": man_bak,
                                "rad": backup['radicado'], "usr": usr})
                 st.session_state['backup_caso'] = None
                 st.success("¡Acción deshecha con éxito!")
@@ -357,13 +372,13 @@ else:
             df_activos = df[df['status_activo'] == 1]
             df_inactivos = df[df['status_activo'] == 0]
             
-            # Panel de métricas superior
+            # Panel de métricas
             total_detenidos_activos = len(df_activos[df_activos['detenido'] == 'Sí']) if 'detenido' in df.columns else 0
             
             col1, col2, col3 = st.columns(3)
             col1.metric("🟢 Casos Activos", len(df_activos))
             col2.metric("🔴 Casos Inactivos (Cerrados)", len(df_inactivos))
-            col3.metric("🔒 Detenidos (Casos Activos)", total_detenidos_activos)
+            col3.metric("🔒 Detenidos (Activos)", total_detenidos_activos)
             
             st.write("---")
             
@@ -403,12 +418,11 @@ else:
             
             st.write("---")
             st.write("### ✏️ Edición Rápida y Descargas")
-            st.info("💡 Puedes hacer doble clic en cualquier celda para modificarla rápidamente y luego guardar.")
+            st.info("💡 Haz doble clic en cualquier celda para modificar datos (como maniobras dilatorias o fechas) y luego guarda.")
             
             df_editado = st.data_editor(df, num_rows="dynamic", key="editor_inventario", use_container_width=True, hide_index=True)
             
             col_save, col_auto = st.columns(2)
-            
             with col_save:
                 if st.button("💾 Guardar Cambios Editados en BD", use_container_width=True):
                     try:
@@ -461,11 +475,10 @@ else:
 
     elif eleccion == "⏱️ Control de Términos":
         st.header("⏱️ Control de Términos (Personas Detenidas)")
-        st.info("Este módulo calcula los días transcurridos desde la fecha de detención para los casos ACTIVOS. Ideal para monitorear vencimiento de términos.")
+        st.info("Este módulo calcula los días transcurridos descontando las maniobras dilatorias.")
         
-        df_det = conn.query(f"SELECT radicado, acusado, delitos, etapa, fecha_detencion, observaciones FROM inventario_expedientes WHERE usuario_propietario = '{usr}' AND detenido = 'Sí' AND status_activo = 1", ttl=0)
+        df_det = conn.query(f"SELECT radicado, acusado, delitos, etapa, fecha_detencion, maniobras_dilatorias, observaciones FROM inventario_expedientes WHERE usuario_propietario = '{usr}' AND detenido = 'Sí' AND status_activo = 1", ttl=0)
         
-        # Métrica de cantidad de detenidos
         total_det = len(df_det) if not df_det.empty else 0
         st.metric(label="Total Personas Detenidas (Casos Activos)", value=total_det)
         st.write("---")
@@ -479,4 +492,16 @@ else:
                 
                 if not df_det.empty:
                     hoy = pd.Timestamp.now().normalize()
-                    df_det['Días Privado de Libertad'] = (hoy - df_det['fecha_detencion_dt']).dt.days
+                    
+                    # Calcular Días Totales (esta línea ya no tiene el error de sintaxis)
+                    df_det['Días Totales'] = (hoy - df_det['fecha_detencion_dt']).dt.days
+                    
+                    # Asegurar que maniobras_dilatorias sea numérico
+                    df_det['maniobras_dilatorias'] = pd.to_numeric(df_det['maniobras_dilatorias'], errors='coerce').fillna(0).astype(int)
+                    
+                    # Calcular Días Efectivos
+                    df_det['Días Efectivos'] = df_det['Días Totales'] - df_det['maniobras_dilatorias']
+                    
+                    # Ordenar por los de mayor urgencia
+                    df_det = df_det.sort_values(by='Días Efectivos', ascending=False)
+                    df_det['Fecha Captura'] = df_det['fecha_detencion_dt'].dt.strftime('%
