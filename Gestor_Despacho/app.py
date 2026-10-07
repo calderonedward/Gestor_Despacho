@@ -479,4 +479,4 @@ else:
                 
                 if not df_det.empty:
                     hoy = pd.Timestamp.now().normalize()
-                    df_det['Días Privado de Libertad'] = (hoy - df_det['fecha_detencion_dt']).dt.
+                    df_det['Días Privado de Libertad'] = (hoy - df_det['fecha_detencion_dt']).dt.days
