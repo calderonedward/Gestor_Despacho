@@ -52,13 +52,12 @@ def generar_hash(password):
     return hashlib.sha256(str.encode(password)).hexdigest()
 
 def inicializar_bd():
-    # 1. Crear todas las tablas principales de forma segura en una sola transacción
+    # 1. Crear tablas
     with conn.session as s:
         s.execute(text('''CREATE TABLE IF NOT EXISTS inventario_expedientes (
             id SERIAL PRIMARY KEY, radicado TEXT, municipio TEXT, etapa TEXT, 
             estante TEXT, fila TEXT, puesto TEXT, ubicacion TEXT, status_activo INTEGER, 
-            observaciones TEXT, acusado TEXT, delitos TEXT, usuario_propietario TEXT,
-            fecha_imputacion TEXT)'''))
+            observaciones TEXT, acusado TEXT, delitos TEXT, usuario_propietario TEXT)'''))
             
         s.execute(text('''CREATE TABLE IF NOT EXISTS usuarios_despacho (
             usuario TEXT PRIMARY KEY, password TEXT, nombre_fiscalia TEXT)'''))
@@ -67,13 +66,14 @@ def inicializar_bd():
             id SERIAL PRIMARY KEY, usuario TEXT, municipio TEXT, estante INTEGER, 
             fila_inicio INTEGER, fila_fin INTEGER, puestos_max INTEGER, ubic_max INTEGER)'''))
     
-    # 2. Intentar agregar columnas nuevas de forma AISLADA para evitar InFailedSqlTransaction
-    try:
-        with conn.session as s:
-            s.execute(text('ALTER TABLE inventario_expedientes ADD COLUMN fecha_imputacion TEXT'))
-    except:
-        pass 
-        
+    # 2. Agregar columnas nuevas de forma aislada
+    for col in ['fecha_imputacion', 'detenido', 'fecha_detencion']:
+        try:
+            with conn.session as s:
+                s.execute(text(f'ALTER TABLE inventario_expedientes ADD COLUMN {col} TEXT'))
+        except:
+            pass 
+            
     for col in ['puestos_max', 'ubic_max']:
         try:
             with conn.session as s:
@@ -81,7 +81,7 @@ def inicializar_bd():
         except:
             pass
     
-    # 3. Insertar usuario administrador por defecto en su propia transacción
+    # 3. Usuario administrador
     with conn.session as s:
         pwd_hash = hashlib.sha256("12345".encode()).hexdigest()
         s.execute(text("""
@@ -252,99 +252,118 @@ else:
                         st.success("¡Observaciones actualizadas correctamente!")
 
     elif eleccion == "📝 Ingresar Nuevo Expediente":
+        st.header("📝 Ingresar Nuevo Expediente")
         with st.form("f1"):
             r = st.text_input("Radicado*")
             a = st.text_input("Acusado*")
             d = st.text_input("Delito*")
-            f_imp = st.date_input("Fecha de Imputación")
             m = st.selectbox("Municipio", obtener_mapa(usr)['municipio'].tolist())
             e = st.selectbox("Etapa", ["Indagación", "Imputación", "Acusación", "Sentencia", "Preclusión"])
             
-            if st.form_submit_button("Guardar"):
+            st.write("---")
+            st.write("### 📅 Fechas y Estado de Detención")
+            col1, col2 = st.columns(2)
+            with col1:
+                f_imp = st.date_input("Fecha de Imputación (Si aplica)")
+            with col2:
+                es_det = st.selectbox("¿El acusado está detenido?", ["No", "Sí"])
+                f_det = st.date_input("Fecha de Detención (Si aplica)")
+            
+            if st.form_submit_button("Guardar Expediente"):
                 est, fil, pto, ubi = asignar_ubicacion_fisica(m, e, usr)
                 with conn.session as s:
                     fecha_str = str(f_imp)
+                    fecha_det_str = str(f_det) if es_det == "Sí" else ""
+                    
                     s.execute(text("""INSERT INTO inventario_expedientes 
-                                        (radicado, acusado, delitos, municipio, etapa, estante, fila, puesto, ubicacion, status_activo, usuario_propietario, fecha_imputacion) 
-                                        VALUES (:r, :a, :d, :m, :e, :est, :fil, :pto, :ubi, 1, :usr, :f_imp)"""), 
-                                {"r":r, "a":a, "d":d, "m":m, "e":e, "est":est, "fil":fil, "pto":pto, "ubi":ubi, "usr":usr, "f_imp":fecha_str})
+                                        (radicado, acusado, delitos, municipio, etapa, estante, fila, puesto, ubicacion, status_activo, usuario_propietario, fecha_imputacion, detenido, fecha_detencion) 
+                                        VALUES (:r, :a, :d, :m, :e, :est, :fil, :pto, :ubi, 1, :usr, :f_imp, :det, :f_det)"""), 
+                                {"r":r, "a":a, "d":d, "m":m, "e":e, "est":est, "fil":fil, "pto":pto, "ubi":ubi, "usr":usr, "f_imp":fecha_str, "det":es_det, "f_det":fecha_det_str})
                 st.success(f"Guardado en {est}, {fil}, {pto}, Ubi {ubi}")
 
     elif eleccion == "🔄 Actualizar / Cerrar Caso":
         st.header("🔄 Actualizar / Cerrar Caso")
         
-        # Contenedor para mostrar los mensajes sin que se borren al instante
         msg_container = st.container()
         
         with st.form("f2"):
-            r = st.text_input("Radicado del caso:")
+            r = st.text_input("Radicado del caso a actualizar:")
             n = st.selectbox("Nueva Etapa", ["Indagación", "Imputación", "Acusación", "Sentencia", "Preclusión", "Archivo"])
-            f_imp = st.date_input("Fecha de Imputación (si aplica):")
+            
+            st.write("---")
+            st.write("### 📅 Actualizar Fechas y Detención")
+            col1, col2 = st.columns(2)
+            with col1:
+                f_imp = st.date_input("Fecha de Imputación:")
+            with col2:
+                es_det = st.selectbox("¿El acusado está detenido?", ["No", "Sí"])
+                f_det = st.date_input("Fecha de Detención:")
+                
             obs = st.text_area("Observaciones:")
             
-            submit_btn = st.form_submit_button("Actualizar")
+            submit_btn = st.form_submit_button("Actualizar Expediente")
             
         if submit_btn:
-            # Buscamos el caso en la base de datos ANTES de que se modifique
             df_actual = conn.query(f"SELECT * FROM inventario_expedientes WHERE radicado='{r}' AND usuario_propietario='{usr}'", ttl=0)
             
             if not df_actual.empty:
                 df_actual = df_actual.fillna("")
-                # Guardamos una copia exacta en la memoria
                 st.session_state['backup_caso'] = df_actual.iloc[0].to_dict()
                 
                 with conn.session as s:
                     fecha_str = str(f_imp)
+                    fecha_det_str = str(f_det) if es_det == "Sí" else ""
                     
                     if n in ["Sentencia", "Preclusión", "Archivo"]:
                         e, f, p, u = asignar_ubicacion_fisica("SENTENCIAS", n, usr)
                         s.execute(text("""UPDATE inventario_expedientes 
                                           SET etapa=:n, status_activo=0, estante=:e, fila=:f, puesto=:p, 
-                                          ubicacion=:u, observaciones=:obs, fecha_imputacion=:f_imp 
+                                          ubicacion=:u, observaciones=:obs, fecha_imputacion=:f_imp, detenido=:det, fecha_detencion=:f_det
                                           WHERE radicado=:r AND usuario_propietario=:usr"""),
-                                  {"n":n, "e":e, "f":f, "p":p, "u":u, "obs":obs, "f_imp":fecha_str, "r":r, "usr":usr})
+                                  {"n":n, "e":e, "f":f, "p":p, "u":u, "obs":obs, "f_imp":fecha_str, "det":es_det, "f_det":fecha_det_str, "r":r, "usr":usr})
                         estado_str = "🔴 Inactivo (Enviado a Sentencias/Archivo)"
                     else: 
                         s.execute(text("""UPDATE inventario_expedientes 
-                                          SET etapa=:n, status_activo=1, observaciones=:obs, fecha_imputacion=:f_imp 
+                                          SET etapa=:n, status_activo=1, observaciones=:obs, fecha_imputacion=:f_imp, detenido=:det, fecha_detencion=:f_det 
                                           WHERE radicado=:r AND usuario_propietario=:usr"""),
-                                  {"n":n, "obs":obs, "f_imp":fecha_str, "r":r, "usr":usr})
+                                  {"n":n, "obs":obs, "f_imp":fecha_str, "det":es_det, "f_det":fecha_det_str, "r":r, "usr":usr})
                         estado_str = "🟢 Activo"
                         
                 msg_container.success(f"Caso actualizado exitosamente a la etapa '{n}'. Estado actual: {estado_str}")
             else:
                 msg_container.error(f"No se encontró el radicado {r}. Verifica el número.")
 
-        # Botón mágico de DESHACER
+        # Botón de DESHACER
         if 'backup_caso' in st.session_state and st.session_state['backup_caso'] is not None:
             backup = st.session_state['backup_caso']
             st.write("---")
             st.warning(f"⚠️ ¿Digitaste mal? El último caso modificado fue el radicado **{backup['radicado']}**.")
             
             if st.button("↩️ Deshacer error (Restaurar estado y recuperar ubicación)"):
+                det_bak = backup.get('detenido', '')
+                f_det_bak = backup.get('fecha_detencion', '')
                 with conn.session as s:
                     s.execute(text("""UPDATE inventario_expedientes 
                                       SET etapa=:eta, status_activo=:act, estante=:est, fila=:fil, 
-                                          puesto=:pue, ubicacion=:ubi, observaciones=:obs, fecha_imputacion=:f_imp 
+                                          puesto=:pue, ubicacion=:ubi, observaciones=:obs, fecha_imputacion=:f_imp,
+                                          detenido=:det, fecha_detencion=:f_det
                                       WHERE radicado=:rad AND usuario_propietario=:usr"""),
                               {"eta": backup['etapa'], "act": backup['status_activo'], 
                                "est": backup['estante'], "fil": backup['fila'], 
                                "pue": backup['puesto'], "ubi": backup['ubicacion'], 
                                "obs": backup['observaciones'], "f_imp": backup['fecha_imputacion'],
+                               "det": det_bak, "f_det": f_det_bak,
                                "rad": backup['radicado'], "usr": usr})
                 st.session_state['backup_caso'] = None
                 st.success("¡Acción deshecha con éxito! El caso ha recuperado su etapa anterior y su espacio original.")
 
-        # ==========================================
-        # NUEVA SECCIÓN: ELIMINAR CASO DEFINITIVAMENTE
-        # ==========================================
+        # SECCIÓN ELIMINAR CASO
         st.write("---")
         st.write("### 🗑️ Eliminar Registro Definitivamente")
         st.info("💡 Si borras un caso aquí, se eliminará por completo del sistema y su espacio en el estante quedará libre para el próximo caso que ingreses.")
         
         with st.form("form_eliminar"):
             rad_eliminar = st.text_input("Ingresa el Radicado exacto a eliminar:")
-            # Casilla de seguridad para evitar borrados accidentales
             confirmar = st.checkbox("Estoy seguro de que quiero borrar este caso por completo.")
             
             if st.form_submit_button("🚨 Eliminar Expediente"):
@@ -353,9 +372,7 @@ else:
                 elif len(rad_eliminar) < 3:
                     st.error("Ingresa un radicado válido.")
                 else:
-                    # Verificamos si existe antes de borrarlo
                     df_check = conn.query(f"SELECT * FROM inventario_expedientes WHERE radicado='{rad_eliminar}' AND usuario_propietario='{usr}'", ttl=0)
-                    
                     if not df_check.empty:
                         with conn.session as s:
                             s.execute(text("DELETE FROM inventario_expedientes WHERE radicado=:r AND usuario_propietario=:u"), 
@@ -363,6 +380,7 @@ else:
                         st.success(f"¡El radicado {rad_eliminar} ha sido borrado del sistema! Su espacio físico ya está disponible.")
                     else:
                         st.error(f"No se encontró el radicado {rad_eliminar} en tu inventario.")
+
     elif eleccion == "📊 Ver Inventario":
         st.header("📊 Inventario de Expedientes")
         
@@ -372,15 +390,12 @@ else:
             if 'usuario_propietario' in df.columns:
                 df = df.drop(columns=['usuario_propietario'])
                 
-            # Separar los datos
             df_activos = df[df['status_activo'] == 1]
             df_inactivos = df[df['status_activo'] == 0]
             
-            # Buscar duplicados ignorando los campos vacíos
             df_validos = df[df['radicado'].astype(str).str.strip() != ""]
             duplicados = df_validos[df_validos.duplicated(subset=['radicado'], keep=False)]
             
-            # Crear 4 pestañas interactivas
             tab1, tab2, tab3, tab4 = st.tabs(["🟢 Casos Activos", "🔴 Casos Inactivos", "📋 Todos", "⚠️ Duplicados"])
             
             with tab1:
@@ -399,7 +414,6 @@ else:
                 st.write("### 🚨 Detección de Radicados Duplicados")
                 if not duplicados.empty:
                     st.warning(f"Se detectaron {len(duplicados)} registros con radicados repetidos. Revisa la tabla:")
-                    # Mostramos los duplicados ordenados para que los veas juntos
                     st.dataframe(duplicados.sort_values(by='radicado'), use_container_width=True)
                     
                     st.info("💡 Si presionas el botón, el sistema eliminará los registros más antiguos y conservará únicamente la última versión ingresada de cada radicado.")
@@ -506,7 +520,8 @@ else:
             columnas_permitidas = [
                 'radicado', 'municipio', 'etapa', 'estante', 'fila', 
                 'puesto', 'ubicacion', 'status_activo', 'observaciones', 
-                'acusado', 'delitos', 'usuario_propietario', 'fecha_imputacion'
+                'acusado', 'delitos', 'usuario_propietario', 'fecha_imputacion',
+                'detenido', 'fecha_detencion'
             ]
             df_final = df[[col for col in columnas_permitidas if col in df.columns]]
 
@@ -545,10 +560,7 @@ else:
                 horizontal=True
             )
             
-            # Crear una copia para no alterar la tabla interactiva
             df_descarga = df_editado.copy()
-            
-            # Aplicar el filtro según tu selección
             if filtro_descarga == "🟢 Casos Activos":
                 df_descarga = df_descarga[df_descarga['status_activo'] == 1]
                 nombre_archivo = f"Reporte_Activos_{usr}.xlsx"
